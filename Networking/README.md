@@ -280,7 +280,7 @@ public void ForceInitialize()
 
 일반적으로 `NetworkConnection.Initialize`는 `NetworkServer.AddExternalConnection` 등 UNet 내부 흐름 속에서 자동으로 호출되지만, Steam P2P 세션은 UNet이 인지하지 못하는 별도 채널로 생성되기 때문에 이 초기화 절차를 코드에서 직접 호출해 주어야 합니다.
 
-**3) 실제 송신 — `TransportSend`를 가로채 Steamworks로 위임**
+**3) 실제 송신 — `TransportSend`를 오버라이드하여 Steamworks로 위임**
 
 ```csharp
 public override bool TransportSend(byte[] bytes, int numBytes, int channelId, out byte error)
@@ -347,7 +347,7 @@ for (int chan = 0; chan < channels; chan++)
 }
 ```
 
-정리하면, **송신 시엔 `TransportSend`를 가로채 Steamworks로 내보내고, 수신 시엔 Steamworks 큐를 폴링하여 `TransportReceive`로 주입하는** 구조입니다. UNet 입장에서는 여전히 자신의 표준 송수신 파이프라인(직렬화, 핸들러 디스패치, 채널 QoS)만을 인식할 뿐, 물리적 전송 계층이 UDP 소켓이 아닌 Steamworks P2P라는 사실은 완전히 추상화되어 가려져 있습니다. 프레임 폴링 중 대량의 패킷이 한 번에 몰릴 경우를 대비해 처리 개수를 일정 수준(`recvCount > 512`)에서 제한함으로써, 단일 프레임이 과도하게 길어지는 상황도 방지합니다.
+정리하면, **송신 시엔 `TransportSend`를 재정의하여 Steamworks로 전달하고, 수신 시엔 Steamworks 큐를 폴링하여 `TransportReceive`로 주입하는** 구조입니다. UNet 입장에서는 여전히 자신의 표준 송수신 파이프라인(직렬화, 핸들러 디스패치, 채널 QoS)만을 인식할 뿐, 물리적 전송 계층이 UDP 소켓이 아닌 Steamworks P2P라는 사실은 완전히 추상화되어 가려져 있습니다. 프레임 폴링 중 대량의 패킷이 한 번에 몰릴 경우를 대비해 처리 개수를 일정 수준(`recvCount > 512`)에서 제한함으로써, 단일 프레임이 과도하게 길어지는 상황도 방지합니다.
 
 ### 세션 생성/해제 흐름
 
@@ -378,7 +378,7 @@ public void CloseP2PSession()
     }
     else
     {
-        // 클라이언트는 먼저 서버에 퇴장 의사를 통지하고,
+        // 클라이언트는 서버에 연결 종료 의사를 우선 통지한 뒤,
         var msg = new DisconnectP2PMessage { SteamId = SteamUser.GetSteamID().m_SteamID };
         SendByChannel(CustomMsgs.RequestDisconnectP2P, msg, CustomChannels.ReliableSequenced);
         // 큐에 남은 패킷이 실제로 모두 전송될 때까지 대기한 뒤 세션을 닫음
@@ -387,7 +387,7 @@ public void CloseP2PSession()
 }
 ```
 
-클라이언트가 먼저 연결을 종료할 때는 퇴장 메시지를 전송한 직후 바로 세션을 닫지 않습니다. `FlushLocalP2PPacket`이 구동하는 코루틴이 `SteamNetworking.GetP2PSessionState`로 `m_nPacketsQueuedForSend`가 0이 될 때까지(전송 대기 중인 패킷이 모두 소진될 때까지) 매 프레임 대기한 뒤에야 `Reset()`으로 세션을 종료합니다. 그렇지 않으면 마지막 메시지(연결 종료 통지 등)가 실제로 전송되기 전에 세션이 끊길 위험이 있기 때문입니다.
+클라이언트가 먼저 연결을 종료할 때는 연결 종료 메시지를 전송한 직후 바로 세션을 닫지 않습니다. `FlushLocalP2PPacket`이 구동하는 코루틴이 `SteamNetworking.GetP2PSessionState`로 `m_nPacketsQueuedForSend`가 0이 될 때까지(전송 대기 중인 패킷이 모두 소진될 때까지) 매 프레임 대기한 뒤에야 `Reset()`으로 세션을 종료합니다. 그렇지 않으면 마지막 메시지(연결 종료 통지 등)가 실제로 전송되기 전에 세션이 끊길 위험이 있기 때문입니다.
 
 또한 매 틱마다 `ValidateSteamConnection()`을 통해 Steamworks가 보고하는 세션 상태(`m_bConnectionActive`)를 UNet의 연결 상태와 별도로 검증합니다. Steam P2P는 NAT 환경 특성상 상대방이 응답 없이 조용히 이탈하는 경우(방화벽, 네트워크 전환 등)가 UDP 다이렉트 연결보다 빈번하여, UNet의 타임아웃 메커니즘만으로는 감지가 지연될 수 있기 때문입니다.
 
