@@ -55,11 +55,14 @@ private void Update()
         return;
     }
 
-    lock (TaskLock)
+    // ActiveTask는 Update()(메인 스레드)에서만 읽고 쓰므로 별도 락이 필요 없습니다.
+    // TaskQueue는 QueueAsyncTask()를 통해 다른 스레드와 공유되므로, Count 확인과
+    // Dequeue를 하나의 lock 블록 안에서 원자적으로 수행해 레이스 컨디션을 방지합니다.
+    if (null == ActiveTask)
     {
-        if (null == ActiveTask && TaskQueue.Count > 0)
+        lock (QueueLock)
         {
-            lock (QueueLock)
+            if (TaskQueue.Count > 0)
             {
                 ActiveTask = TaskQueue.Dequeue();
             }
@@ -225,7 +228,7 @@ SteamAsyncTaskManager : MonoBehaviour (Singleton)
  └─ Queue<SteamAsyncTask> 를 매 프레임 하나씩 소비
 ```
 
-`SteamAsyncTaskManager`는 게임 전역에서 유일하게 존재하는 싱글턴 `MonoBehaviour`로, `DontDestroyOnLoad`로 씬 전환 중에도 유지됩니다. 큐 접근(`TaskQueue`)과 실행 중인 태스크(`ActiveTask`) 접근에는 각각 별도의 락 오브젝트(`QueueLock`, `TaskLock`)를 사용하여, 다른 스레드(예: UDP 콜백)에서 태스크를 enqueue 하더라도 안전성을 보장하도록 처리했습니다.
+`SteamAsyncTaskManager`는 게임 전역에서 유일하게 존재하는 싱글턴 `MonoBehaviour`로, `DontDestroyOnLoad`로 씬 전환 중에도 유지됩니다. `ActiveTask`는 `Update()`(메인 스레드)에서만 접근하므로 별도의 락이 필요 없고, 다른 스레드(예: UDP 콜백)에서도 접근하는 `TaskQueue`만 단일 락 오브젝트(`QueueLock`)로 보호합니다. `Count` 확인과 `Dequeue`를 같은 lock 블록 안에서 처리해 두 연산 사이의 레이스 컨디션도 차단했습니다.
 
 `SteamAsyncTask` 기반 클래스 자체는 상태값 세 개와 생명주기 훅 세 개만 노출하는 얇은 계약(contract)입니다 — 하위 클래스는 필요한 훅만 골라서 오버라이드하면 되고, 기본 `Tick()`은 아무 폴링도 하지 않고 즉시 완료 처리합니다:
 

@@ -55,11 +55,15 @@ private void Update()
         return;
     }
 
-    lock (TaskLock)
+    // ActiveTask is only ever read/written here in Update() (main thread), so it
+    // needs no lock of its own. TaskQueue is shared with other threads via
+    // QueueAsyncTask(), so the Count check and Dequeue happen inside a single
+    // lock block to keep the two operations atomic and avoid a race on Count.
+    if (null == ActiveTask)
     {
-        if (null == ActiveTask && TaskQueue.Count > 0)
+        lock (QueueLock)
         {
-            lock (QueueLock)
+            if (TaskQueue.Count > 0)
             {
                 ActiveTask = TaskQueue.Dequeue();
             }
@@ -226,7 +230,7 @@ SteamAsyncTaskManager : MonoBehaviour (Singleton)
  └─ Consumes the Queue<SteamAsyncTask> one item per frame
 ```
 
-`SteamAsyncTaskManager` is the single globally-existing singleton `MonoBehaviour` in the game, kept alive across scene transitions via `DontDestroyOnLoad`. Access to the queue (`TaskQueue`) and access to the currently running task (`ActiveTask`) each use their own separate lock object (`QueueLock`, `TaskLock`), so that safety is guaranteed even if a task is enqueued from a different thread (e.g., a UDP callback).
+`SteamAsyncTaskManager` is the single globally-existing singleton `MonoBehaviour` in the game, kept alive across scene transitions via `DontDestroyOnLoad`. `ActiveTask` is only ever touched inside `Update()` (main thread), so it needs no lock of its own; only `TaskQueue`, which is also accessed from other threads (e.g., a UDP callback), is protected — with a single lock object (`QueueLock`). The `Count` check and `Dequeue` happen inside that same lock block, which also closes off a race between the two.
 
 The `SteamAsyncTask` base class itself is a thin contract that exposes just three state fields and three lifecycle hooks — subclasses override only the hooks they need, and the default `Tick()` does no polling at all and completes immediately:
 
