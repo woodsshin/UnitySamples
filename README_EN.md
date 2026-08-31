@@ -11,6 +11,7 @@ A custom networking layer built on top of Unity's legacy networking framework, *
 - A custom message queue that applies frame-level flow control to the burst of object-spawn traffic that occurs on initial connection
 - Solved without modifying the engine source, using only overrides of `NetworkConnection`/`NetworkManager` virtual methods
 - A low-level design that analyzes UNet's connection state machine and ports the Steam P2P transport layer so that UNet recognizes it as a standard UDP connection
+- (Appendix) Also covers chunk streaming and a fall-through-the-floor fix for joining large worlds with 10,000+ objects, plus dedicated server admin features (passwords, kick/ban, remote commands)
 
 ### 📁 [Steam](./Steam/README_EN.md)
 

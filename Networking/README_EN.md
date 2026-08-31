@@ -431,3 +431,422 @@ Additionally, in `TransportSend`, when the recipient's SteamID matches the sende
 - A structure that abstracts two different transport media (UDP sockets / Steam P2P sessions) behind **the same high-level interface**, so that the game logic never needs to be aware of the transport method
 - A low-level design that precisely analyzes UNet's connection state machine and **ports a Steam P2P transport layer** on top of it, working around the engine so that it recognizes it as a standard UDP connection
 - Coroutine-based, frame-level flushing that naturally integrates into Unity's main loop for flow control, without polling or a separate thread
+
+---
+
+# Appendix: Large-World Join Streaming & Dedicated Server Admin Features
+
+Where the section above covered "how to apply flow control to spawn traffic on an already-established connection," this appendix covers **"the problems that occur when a client first joins a large world with 10,000+ network objects"** and **"the admin features a dedicated server needs to operate."**
+
+## 5 Problems Covered
+
+1. **Buffer overflow** — sending 10,000+ NetworkIdentities/chunks of data all at once on connect exceeds the transport layer's send queue
+2. **Progress loading screen** — with no way to report join progress to the client, users assume the game has frozen
+3. **Players falling through the floor** — streaming chunks in arbitrary order can mean the terrain around the player's spawn point arrives late, so gravity calculations start before it exists
+4. **Dedicated server admin features** — passwords, kick/ban, server name, remote commands, command-line parameters
+5. **Replacing UNet's transport layer with Steam P2P** — delegating actual send/receive to the Steamworks P2P packet API instead of a socket, while reusing UNet's higher-level logic (serialization, channel QoS, handler dispatch) unchanged
+
+---
+
+## 1. Sequential intake — object spawn queue (`SpawnQueue.cs`)
+
+UNet batches `ObjectSpawnMessage`/`ObjectSpawnSceneMessage` on every send tick of `NetworkServer`, but when the number of objects in the scene reaches the thousands-to-tens-of-thousands range, **simply calling `NetworkServer.Spawn()` repeatedly within a single frame** still produces a spike. Symptoms show up as "no free events for message in the pool" errors at the `NetworkTransport` level, timeouts right after connecting, or missing spawned objects.
+
+```csharp
+public void Enqueue(IEnumerable<GameObject> objects)
+{
+    foreach (var go in objects)
+    {
+        if (go != null) _pending.Enqueue(go);
+    }
+    _drainRoutine ??= StartCoroutine(DrainRoutine());
+}
+
+private IEnumerator DrainRoutine()
+{
+    while (_pending.Count > 0)
+    {
+        int spawnedThisFrame = 0;
+        while (spawnedThisFrame < objectsPerFrame && _pending.Count > 0)
+        {
+            GameObject go = _pending.Dequeue();
+            if (go == null) continue;
+
+            NetworkIdentity identity = go.GetComponent<NetworkIdentity>();
+            if (identity != null && !identity.isServer)
+            {
+                NetworkServer.Spawn(go);
+            }
+            spawnedThisFrame++;
+        }
+        yield return null;
+    }
+    _drainRoutine = null;
+}
+```
+
+A cap (`objectsPerFrame`) is placed on how many objects can be spawned in one frame, with the rest carried over to the next. The coroutine keeps itself alive until the queue is drained and then exits, so no separate polling loop is needed.
+
+---
+
+## 2. Chunk streaming — distance-based prioritization (`ChunkStreamManager.cs`)
+
+This is the most important part. Simple sequential sending solves the buffer problem, but **the order in which things are sent** can still leave the "falling through the floor" bug in place. If chunks far from the player's spawn point arrive first and the chunks underfoot arrive later, the client's gravity/collision calculations start on terrain that doesn't exist yet.
+
+### Priority ordering
+
+```csharp
+private List<ChunkCoord> BuildPriorityOrder(ChunkCoord origin, IReadOnlyList<ChunkCoord> allChunks)
+{
+    var withDistance = new List<(ChunkCoord coord, int distSq, bool inPriorityRing)>(allChunks.Count);
+
+    foreach (var c in allChunks)
+    {
+        int dx = c.X - origin.X;
+        int dy = c.Y - origin.Y;
+        int dz = c.Z - origin.Z;
+        int distSq = dx * dx + dy * dy + dz * dz;
+        bool inRing = distSq <= priorityRadius * priorityRadius;
+        withDistance.Add((c, distSq, inRing));
+    }
+
+    // Chunks inside the priority ring always go first, then the rest by distance
+    withDistance.Sort((a, b) =>
+    {
+        if (a.inPriorityRing != b.inPriorityRing)
+            return a.inPriorityRing ? -1 : 1;
+        return a.distSq.CompareTo(b.distSq);
+    });
+
+    var result = new List<ChunkCoord>(withDistance.Count);
+    foreach (var entry in withDistance) result.Add(entry.coord);
+    return result;
+}
+```
+
+Rather than a plain distance sort, every chunk inside `priorityRadius` (the terrain immediately surrounding the player) is sent **first, in full**, before the rest streams out in distance order. This prevents cases where similar distance values happen to scramble the ordering between a chunk underfoot and a far-away one.
+
+### Frame-by-frame sending + progress reporting
+
+This uses UNet's `NetworkConnection.SendWriter()` API directly. That means this coroutine has no need to know whether the connection is a regular socket or the `SteamP2PConnection` from section 5 — it only operates against the base `NetworkConnection` class.
+
+```csharp
+private IEnumerator StreamChunksRoutine(NetworkConnection conn, StreamState state)
+{
+    while (state.NextIndex < state.Ordered.Count)
+    {
+        if (conn == null || !conn.isConnected)
+        {
+            _activeStreams.Remove(conn);
+            yield break;
+        }
+
+        int sentThisFrame = 0;
+        while (sentThisFrame < maxChunksPerFrame && state.NextIndex < state.Ordered.Count)
+        {
+            if (!NetworkFlowGate.HasCapacity(conn, reserved: 1))
+                break;
+
+            ChunkCoord coord = state.Ordered[state.NextIndex];
+            ChunkPayload payload = ChunkDataSource.BuildPayload(coord);
+
+            var chunkWriter = new NetworkWriter();
+            chunkWriter.StartMessage(CustomMsgs.ChunkData);
+            chunkWriter.Write(coord.X);
+            chunkWriter.Write(coord.Y);
+            chunkWriter.Write(coord.Z);
+            chunkWriter.WriteBytesFull(payload.CompressedVoxelData);
+            chunkWriter.FinishMessage();
+            conn.SendWriter(chunkWriter, CustomChannels.ReliableSequenced);
+
+            state.NextIndex++;
+            state.SentCount++;
+            sentThisFrame++;
+
+            if (state.SentCount % 8 == 0 || state.NextIndex == state.Ordered.Count)
+            {
+                var progressWriter = new NetworkWriter();
+                progressWriter.StartMessage(CustomMsgs.ChunkStreamProgress);
+                progressWriter.Write(state.SentCount);
+                progressWriter.Write(state.TotalCount);
+                progressWriter.FinishMessage();
+                conn.SendWriter(progressWriter, CustomChannels.Unreliable);
+            }
+
+            if (sentThisFrame >= chunksPerTick) break;
+        }
+        yield return null;
+    }
+
+    var completeWriter = new NetworkWriter();
+    completeWriter.StartMessage(CustomMsgs.ChunkStreamComplete);
+    completeWriter.FinishMessage();
+    conn.SendWriter(completeWriter, CustomChannels.ReliableSequenced);
+
+    _activeStreams.Remove(conn);
+}
+```
+
+Progress messages (`ChunkStreamProgress`) aren't sent per chunk — they're batched in groups of 8 and sent on the `Unreliable` channel. That way progress notifications don't add extra load to the reliable channel we're trying to protect. `NetworkFlowGate.HasCapacity` is set up to branch based on connection type — a point that can be extended to use `GetP2PSessionState` for a `SteamP2PConnection`, or the transport layer's queue-query API for a regular socket.
+
+`NetworkFlowGate.HasCapacity` is the branch point based on connection type — for a regular socket connection, the actual queue depth can be queried via UNet's `NetworkTransport.GetOutgoingMessageQueueSize`, but a `SteamP2PConnection` (section 5) isn't a socket, so `SteamNetworking.GetP2PSessionState`'s `m_nPacketsQueuedForSend` needs to be checked instead. This sample simplifies things by returning `true` in both cases, relying solely on the per-frame caps `chunksPerTick`/`maxChunksPerFrame` as sufficient.
+
+---
+
+## 3. Loading screen + fall-through-the-floor fix (`JoinLoadingScreen.cs`)
+
+The loading UI is just a side effect — **what actually fixes the fall-through bug is pausing the player's physics simulation while streaming is in progress.**
+
+```csharp
+private void OnStreamBegin(ChunkStreamBeginMessage msg)
+{
+    _totalChunks = msg.TotalChunks;
+    _receivedChunks = 0;
+    SetVisible(true);
+    SetPlayerSimulationEnabled(false);   // ← this is the key part
+    UpdateBar(0, _totalChunks);
+}
+
+private void OnStreamComplete(ChunkStreamCompleteMessage msg)
+{
+    UpdateBar(_totalChunks, _totalChunks);
+    SetPlayerSimulationEnabled(true);    // Only resume after streaming completes
+    SetVisible(false);
+}
+
+private void SetPlayerSimulationEnabled(bool enabled)
+{
+    var localPlayer = NetworkClient.localPlayer;
+    if (localPlayer == null) return;
+
+    if (localPlayer.TryGetComponent<Rigidbody>(out var rb))
+    {
+        rb.isKinematic = !enabled;
+    }
+    if (localPlayer.TryGetComponent<PlayerMotor>(out var motor))
+    {
+        motor.enabled = enabled;
+    }
+}
+```
+
+If priority streaming (item 2) is "send the terrain underfoot first," this is the second line of defense: "don't run gravity calculations at all until that terrain has actually arrived." This also covers cases where network latency delays priority chunk delivery longer than expected.
+
+---
+
+## 4. Dedicated Server Admin Features
+
+### 4-1. Command-line parameter parsing (`DedicatedServerConfig.cs`)
+
+Parses arguments in the form `-file start <savename>`, `-logFile "path"`, and `-settings Key Value Key Value ...`.
+
+```csharp
+public static DedicatedServerConfig ParseFromArgs(string[] args)
+{
+    var config = new DedicatedServerConfig();
+
+    for (int i = 0; i < args.Length; i++)
+    {
+        switch (args[i])
+        {
+            case "-file":
+                if (i + 2 < args.Length && args[i + 1] == "start")
+                {
+                    config.SaveName = args[i + 2];
+                    i += 2;
+                }
+                break;
+
+            case "-logFile":
+                if (i + 1 < args.Length) config.LogFilePath = args[++i];
+                break;
+
+            case "-settings":
+                i = ParseSettingsBlock(args, i + 1, config) - 1;
+                break;
+        }
+    }
+    return config;
+}
+```
+
+The `-settings` block keeps consuming Key/Value pairs until the next flag appears (i.e. until it hits a token starting with `-`):
+
+```csharp
+private static int ParseSettingsBlock(string[] args, int startIndex, DedicatedServerConfig config)
+{
+    int i = startIndex;
+    while (i + 1 < args.Length && !args[i].StartsWith("-"))
+    {
+        string key = args[i];
+        string value = args[i + 1];
+
+        switch (key)
+        {
+            case "ServerVisible": config.ServerVisible = ParseBool(value); break;
+            case "GamePort": config.GamePort = ParseInt(value, config.GamePort); break;
+            case "ServerName": config.ServerName = value; break;
+            case "ServerPassword": config.ServerPassword = value; break;
+            case "ServerAuthSecret": config.ServerAuthSecret = value; break;
+            case "ServerMaxPlayers": config.ServerMaxPlayers = ParseInt(value, config.ServerMaxPlayers); break;
+            // ... see the code for remaining keys
+            default:
+                UnityEngine.Debug.LogWarning($"[DedicatedServerConfig] Unknown setting '{key}', ignoring.");
+                break;
+        }
+        i += 2;
+    }
+    return i;
+}
+```
+
+An unrecognized key doesn't crash the server — it just logs a warning and moves on, so a single typo can't take down the whole server startup.
+
+### 4-2. Password gate / kick / ban (`DedicatedServerAdmin.cs`)
+
+```csharp
+public bool TryAuthenticateJoin(NetworkConnection conn, string identity, string passwordAttempt, out string rejectReason)
+{
+    if (_bannedIdentities.Contains(identity))
+    {
+        rejectReason = "You are banned from this server.";
+        return false;
+    }
+
+    if (!string.IsNullOrEmpty(Config.ServerPassword) && Config.ServerPassword != passwordAttempt)
+    {
+        rejectReason = "Incorrect server password.";
+        return false;
+    }
+
+    if (NetworkServer.connections.Count >= Config.ServerMaxPlayers)
+    {
+        rejectReason = "Server is full.";
+        return false;
+    }
+
+    _connectionIdentities[conn.connectionId] = identity;
+    rejectReason = null;
+    return true;
+}
+
+public void Kick(NetworkConnection conn, string reason = "Kicked by admin")
+{
+    SendNotice(conn, reason);
+    conn.Disconnect();
+}
+
+public void Ban(string identity, string reason = "Banned by admin")
+{
+    _bannedIdentities.Add(identity);
+    SaveBanList();
+
+    var conn = FindConnectionByIdentity(identity);
+    if (conn != null) Kick(conn, reason);
+}
+
+private void SendNotice(NetworkConnection conn, string message)
+{
+    var writer = new NetworkWriter();
+    writer.StartMessage(CustomMsgs.AdminNotice);
+    writer.Write(message);
+    writer.FinishMessage();
+    conn.SendWriter(writer, Channels.DefaultReliable);
+}
+```
+
+Since `TryAuthenticateJoin` only takes the base `NetworkConnection` type, this method can be wired directly into `SteamP2PServerController.ShouldAcceptConnection()` from section 5, applying the same authentication logic to both socket connections and Steam P2P connections. The ban list is keyed by a stable identifier (Steam ID, IP, or whatever fits the project) rather than `connectionId` — since `connectionId` changes on every reconnect, it can't be used as a ban key.
+
+### 4-3. Remote command execution (the `serverrun` approach)
+
+Stationeers uses a pattern where typing `serverrun <command>` in the client console authenticates against a `ServerAuthSecret` configured identically on both server and client, then executes the command on the server. This pattern is generalized here:
+
+```csharp
+public bool TryExecuteRemoteCommand(string providedSecret, string command, out string result)
+{
+    if (string.IsNullOrEmpty(Config.ServerAuthSecret) || providedSecret != Config.ServerAuthSecret)
+    {
+        result = "Unauthorized.";
+        return false;
+    }
+    result = DispatchCommand(command);
+    return true;
+}
+
+private string DispatchCommand(string command)
+{
+    var parts = command.Split(' ', 2);
+    string verb = parts[0].ToLowerInvariant();
+    string arg = parts.Length > 1 ? parts[1] : string.Empty;
+
+    switch (verb)
+    {
+        case "say": BroadcastChat(arg); return $"Broadcasted: {arg}";
+        case "kick": return KickByIdentity(arg) ? $"Kicked {arg}" : $"No connected player matching '{arg}'";
+        case "ban": Ban(arg); return $"Banned {arg}";
+        case "unban": Unban(arg); return $"Unbanned {arg}";
+        case "setname": SetServerName(arg); return $"Server name set to '{arg}'";
+        case "setpassword": SetServerPassword(arg); return "Server password updated.";
+        case "help": return "Commands: say <msg>, kick <id>, ban <id>, unban <id>, setname <name>, setpassword <pw>";
+        default: return $"Unknown command '{verb}'. Try 'help'.";
+    }
+}
+```
+
+---
+
+## Full List of Dedicated Server Parameters
+
+### Top-level flags
+
+| Flag | Value | Description |
+|---|---|---|
+| `-file start` | `<stationname> [worldid] [difficulty] [startcondition] [startlocation]` | Loads the specified save (station), or creates a new world if it doesn't exist. Only `stationname` is required; the rest are optional, but including one means every optional argument before it must also be included |
+| `-logFile` | `"path"` | Custom log file path to use instead of `output_log.txt` |
+| `-settings` | see table below | Sets server configuration values in bulk. e.g. `-settings ServerName "MyServer"` |
+
+### `-settings` key list
+
+| Key | Value | Description |
+|---|---|---|
+| `ServerVisible` | `true` / `false` | Whether the server is listed in the in-game server browser |
+| `GamePort` | e.g. `27016` | Port players connect to |
+| `UpdatePort` | e.g. `27015` | Steam update port |
+| `UPNPEnabled` | `true` / `false` | Whether to use UPnP (automatic port forwarding); requires router support |
+| `ServerName` | string | Server name |
+| `ServerPassword` | string | Server connection password |
+| `ServerAuthSecret` | string | Secret used to authenticate admin remote commands (`serverrun`) |
+| `ServerMaxPlayers` | `1`–`20` | Maximum player slots (going above 20 is not recommended) |
+| `AutoSave` | `true` / `false` | Whether to auto-save |
+| `SaveInterval` | e.g. `300` (seconds) | Auto-save interval; going below 60 seconds is not recommended |
+| `AutoPauseServer` | `true` / `false` | Whether to auto-pause when no one is connected |
+| `UseSteamP2P` | `true` / `false` | Whether to allow Steam P2P connections (recommended to disable on a dedicated server) |
+| `StartLocalHost` | `true` / `false` | Internal value required for the server to be reachable; changing it is not recommended |
+| `LocalIpAddress` | e.g. `0.0.0.0` | (Linux) the network interface the server binds to |
+
+---
+
+## Appendix Architecture Summary
+
+```
+DedicatedServerConfig.ParseFromArgs(args)
+   └─ Parses -file / -logFile / -settings
+
+DedicatedServerAdmin
+   ├─ TryAuthenticateJoin()    : checks password · ban list · capacity  ← can be wired into SteamP2PServerController.ShouldAcceptConnection()
+   ├─ Kick() / Ban()           : forced removal keyed by a stable identifier
+   └─ TryExecuteRemoteCommand(): dispatches commands after ServerAuthSecret authentication
+
+SpawnQueue
+   └─ Spreads bulk scene-object spawning across a per-frame cap
+
+ChunkStreamManager
+   ├─ BuildPriorityOrder()    : priority ring around the spawn point + distance sort
+   └─ StreamChunksRoutine()   : per-frame cap + progress broadcast (via conn.SendWriter → SteamP2PConnection.TransportSend)
+
+JoinLoadingScreen (client)
+   ├─ ChunkStreamBeginMessage    → shows the loading screen + pauses player simulation
+   ├─ ChunkStreamProgressMessage → updates the progress bar
+   └─ ChunkStreamCompleteMessage → resumes simulation + hides the loading screen
+
+```

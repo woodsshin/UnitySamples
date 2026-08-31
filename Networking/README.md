@@ -420,3 +420,422 @@ if (myClient != null && conn == myClient.connection)
 - 서로 다른 전송 매체(UDP 소켓 / Steam P2P 세션)를 **동일한 상위 인터페이스**로 추상화하여, 게임 로직이 전송 방식을 의식하지 않도록 만든 구조
 - UNet의 연결 상태 머신을 정밀하게 파악하고, 그 위에 **Steam P2P 전송 계층을 이식**하여 엔진이 표준 UDP 연결로 인식하도록 우회시킨 저수준 설계
 - 코루틴 기반의 프레임 단위 플러시로, 폴링이나 별도 스레드 없이 Unity의 메인 루프에 자연스럽게 편입되는 유량 제어
+
+---
+
+# 부록: 대형 월드 접속 스트리밍 & 데디케이티드 서버 관리자 기능
+
+위 섹션이 "이미 접속한 연결에서 스폰 트래픽을 어떻게 유량 제어할 것인가"를 다뤘다면, 아래는 **"10,000개 이상의 네트워크 오브젝트를 가진 대형 월드에 클라이언트가 처음 접속할 때 발생하는 문제들"** 과 **"데디케이티드 서버 운영에 필요한 관리자 기능"** 을 다루고 있습니다.
+
+## 다루는 문제 5가지
+
+1. **버퍼 오버플로우** — 접속 시점에 10,000개 이상의 NetworkIdentity/청크 데이터를 한 번에 전송하면 전송 계층의 송신 큐를 초과함
+2. **프로그레스 로딩 스크린** — 접속 중 진행률을 클라이언트에 알려줄 방법이 없으면 사용자는 멈춘 것으로 오인함
+3. **플레이어가 지면 아래로 떨어지는 문제** — 청크를 임의 순서로 스트리밍하면 플레이어 스폰 위치 주변 지형이 늦게 도착해 중력 계산이 먼저 시작됨
+4. **데디케이티드 서버 관리자 기능** — 비밀번호, 킥/밴, 서버 이름, 원격 명령, 커맨드라인 파라미터
+5. **UNet 전송 계층을 Steam P2P로 대체** — 소켓이 아닌 Steamworks P2P 패킷 API로 실제 송수신을 위임하면서, UNet 상위 로직(직렬화, 채널 QoS, 핸들러 디스패치)은 그대로 재사용
+
+---
+
+## 1. 순차적 수신 — 오브젝트 스폰 큐 (`SpawnQueue.cs`)
+
+UNet은 `NetworkServer`의 송신 주기마다 `ObjectSpawnMessage`/`ObjectSpawnSceneMessage`를 배칭하지만, 씬에 존재하는 오브젝트 수가 수천~수만 개 규모면 **단일 프레임 안에서 `NetworkServer.Spawn()`을 반복 호출하는 것 자체**가 여전히 스파이크를 만듭니다. 증상은 `NetworkTransport` 레벨의 "no free events for message in the pool" 에러, 접속 직후 타임아웃, 또는 오브젝트 누락으로 나타납니다.
+
+```csharp
+public void Enqueue(IEnumerable<GameObject> objects)
+{
+    foreach (var go in objects)
+    {
+        if (go != null) _pending.Enqueue(go);
+    }
+    _drainRoutine ??= StartCoroutine(DrainRoutine());
+}
+
+private IEnumerator DrainRoutine()
+{
+    while (_pending.Count > 0)
+    {
+        int spawnedThisFrame = 0;
+        while (spawnedThisFrame < objectsPerFrame && _pending.Count > 0)
+        {
+            GameObject go = _pending.Dequeue();
+            if (go == null) continue;
+
+            NetworkIdentity identity = go.GetComponent<NetworkIdentity>();
+            if (identity != null && !identity.isServer)
+            {
+                NetworkServer.Spawn(go);
+            }
+            spawnedThisFrame++;
+        }
+        yield return null;
+    }
+    _drainRoutine = null;
+}
+```
+
+한 프레임에 스폰할 오브젝트 수(`objectsPerFrame`)를 상한선으로 두고, 나머지는 다음 프레임으로 넘깁니다. 큐가 비워질 때까지 코루틴이 자기 자신을 유지하다가 종료되는 구조라 별도의 폴링 루프가 필요 없습니다.
+
+---
+
+## 2. 청크 스트리밍 — 거리 기반 우선순위 (`ChunkStreamManager.cs`)
+
+가장 중요한 부분입니다. 단순히 순차 전송만 하면 버퍼 문제는 해결되지만, **어떤 순서로 보내느냐**에 따라 "지면 아래로 떨어지는 버그"가 남아있을 수 있습니다. 플레이어 스폰 위치에서 먼 청크가 먼저 도착하고 발밑 청크가 나중에 오면, 클라이언트의 중력/충돌 계산이 아직 존재하지 않는 지형 위에서 시작됩니다.
+
+### 우선순위 정렬
+
+```csharp
+private List<ChunkCoord> BuildPriorityOrder(ChunkCoord origin, IReadOnlyList<ChunkCoord> allChunks)
+{
+    var withDistance = new List<(ChunkCoord coord, int distSq, bool inPriorityRing)>(allChunks.Count);
+
+    foreach (var c in allChunks)
+    {
+        int dx = c.X - origin.X;
+        int dy = c.Y - origin.Y;
+        int dz = c.Z - origin.Z;
+        int distSq = dx * dx + dy * dy + dz * dz;
+        bool inRing = distSq <= priorityRadius * priorityRadius;
+        withDistance.Add((c, distSq, inRing));
+    }
+
+    // 우선순위 링 안쪽을 항상 먼저, 그 다음은 거리순
+    withDistance.Sort((a, b) =>
+    {
+        if (a.inPriorityRing != b.inPriorityRing)
+            return a.inPriorityRing ? -1 : 1;
+        return a.distSq.CompareTo(b.distSq);
+    });
+
+    var result = new List<ChunkCoord>(withDistance.Count);
+    foreach (var entry in withDistance) result.Add(entry.coord);
+    return result;
+}
+```
+
+단순 거리순 정렬이 아니라, `priorityRadius` 안의 청크(플레이어를 즉시 둘러싼 지형)를 **항상 먼저** 전부 보내고, 그 다음에야 나머지를 거리순으로 흘려보냅니다. 거리값이 우연히 비슷해서 발밑 청크와 먼 청크의 정렬 순서가 뒤섞이는 경우를 방지하기 위함입니다.
+
+### 프레임 단위 전송 + 진행률 보고
+
+UNet의 `NetworkConnection.SendWriter()` API를 그대로 사용합니다. 이렇게 하면 이 코루틴은 연결이 일반 소켓 기반인지, 5번 섹션의 `SteamP2PConnection`인지 전혀 알 필요가 없습니다 — `NetworkConnection` 기본 클래스만 보고 작동합니다.
+
+```csharp
+private IEnumerator StreamChunksRoutine(NetworkConnection conn, StreamState state)
+{
+    while (state.NextIndex < state.Ordered.Count)
+    {
+        if (conn == null || !conn.isConnected)
+        {
+            _activeStreams.Remove(conn);
+            yield break;
+        }
+
+        int sentThisFrame = 0;
+        while (sentThisFrame < maxChunksPerFrame && state.NextIndex < state.Ordered.Count)
+        {
+            if (!NetworkFlowGate.HasCapacity(conn, reserved: 1))
+                break;
+
+            ChunkCoord coord = state.Ordered[state.NextIndex];
+            ChunkPayload payload = ChunkDataSource.BuildPayload(coord);
+
+            var chunkWriter = new NetworkWriter();
+            chunkWriter.StartMessage(CustomMsgs.ChunkData);
+            chunkWriter.Write(coord.X);
+            chunkWriter.Write(coord.Y);
+            chunkWriter.Write(coord.Z);
+            chunkWriter.WriteBytesFull(payload.CompressedVoxelData);
+            chunkWriter.FinishMessage();
+            conn.SendWriter(chunkWriter, CustomChannels.ReliableSequenced);
+
+            state.NextIndex++;
+            state.SentCount++;
+            sentThisFrame++;
+
+            if (state.SentCount % 8 == 0 || state.NextIndex == state.Ordered.Count)
+            {
+                var progressWriter = new NetworkWriter();
+                progressWriter.StartMessage(CustomMsgs.ChunkStreamProgress);
+                progressWriter.Write(state.SentCount);
+                progressWriter.Write(state.TotalCount);
+                progressWriter.FinishMessage();
+                conn.SendWriter(progressWriter, CustomChannels.Unreliable);
+            }
+
+            if (sentThisFrame >= chunksPerTick) break;
+        }
+        yield return null;
+    }
+
+    var completeWriter = new NetworkWriter();
+    completeWriter.StartMessage(CustomMsgs.ChunkStreamComplete);
+    completeWriter.FinishMessage();
+    conn.SendWriter(completeWriter, CustomChannels.ReliableSequenced);
+
+    _activeStreams.Remove(conn);
+}
+```
+
+진행률 메시지(`ChunkStreamProgress`)는 매 청크마다 보내지 않고 8개 단위로 배칭해서 `Unreliable` 채널로 보냅니다. 이렇게 하면 진행률 알림 자체가 우리가 보호하려는 reliable 채널에 추가 부하를 주지 않습니다. `NetworkFlowGate.HasCapacity`는 연결 타입에 따라 분기하도록 준비되어 있습니다 — `SteamP2PConnection`이면 `GetP2PSessionState`로, 일반 소켓이면 전송 계층의 큐 조회 API로 확장할 수 있는 지점입니다.
+
+`NetworkFlowGate.HasCapacity`는 연결 타입에 따라 분기하는 지점입니다 — 일반 소켓 연결이면 UNet의 `NetworkTransport.GetOutgoingMessageQueueSize`로 실제 큐 깊이를 조회할 수 있지만, `SteamP2PConnection`(5번 섹션)은 소켓이 아니므로 대신 `SteamNetworking.GetP2PSessionState`의 `m_nPacketsQueuedForSend`를 확인해야 합니다. 이 샘플에서는 두 경우 모두 `chunksPerTick`/`maxChunksPerFrame`의 프레임당 상한만으로 충분하다고 보고 `true`를 반환하도록 단순화했습니다.
+
+---
+
+## 3. 로딩 스크린 + 낙하 버그 수정 (`JoinLoadingScreen.cs`)
+
+로딩 UI는 부수 효과일 뿐이고, **실제로 낙하 버그를 고치는 것은 진행 중에 플레이어의 물리 시뮬레이션을 멈춰두는 것**입니다.
+
+```csharp
+private void OnStreamBegin(ChunkStreamBeginMessage msg)
+{
+    _totalChunks = msg.TotalChunks;
+    _receivedChunks = 0;
+    SetVisible(true);
+    SetPlayerSimulationEnabled(false);   // ← 여기가 핵심
+    UpdateBar(0, _totalChunks);
+}
+
+private void OnStreamComplete(ChunkStreamCompleteMessage msg)
+{
+    UpdateBar(_totalChunks, _totalChunks);
+    SetPlayerSimulationEnabled(true);    // 스트리밍 완료 후에만 재개
+    SetVisible(false);
+}
+
+private void SetPlayerSimulationEnabled(bool enabled)
+{
+    var localPlayer = NetworkClient.localPlayer;
+    if (localPlayer == null) return;
+
+    if (localPlayer.TryGetComponent<Rigidbody>(out var rb))
+    {
+        rb.isKinematic = !enabled;
+    }
+    if (localPlayer.TryGetComponent<PlayerMotor>(out var motor))
+    {
+        motor.enabled = enabled;
+    }
+}
+```
+
+우선순위 스트리밍(2번)이 "발밑 지형을 먼저 보낸다"면, 이 부분은 "그 지형이 다 도착하기 전까지는 애초에 중력 계산을 아예 하지 않는다"는 이중 안전장치입니다. 네트워크 지연으로 우선순위 청크 전송이 예상보다 늦어지는 경우까지 커버합니다.
+
+---
+
+## 4. 데디케이티드 서버 관리자 기능
+
+### 4-1. 커맨드라인 파라미터 파싱 (`DedicatedServerConfig.cs`)
+
+`-file start <저장이름>`, `-logFile "경로"`, `-settings Key Value Key Value ...` 형태의 인자를 파싱합니다. 
+
+```csharp
+public static DedicatedServerConfig ParseFromArgs(string[] args)
+{
+    var config = new DedicatedServerConfig();
+
+    for (int i = 0; i < args.Length; i++)
+    {
+        switch (args[i])
+        {
+            case "-file":
+                if (i + 2 < args.Length && args[i + 1] == "start")
+                {
+                    config.SaveName = args[i + 2];
+                    i += 2;
+                }
+                break;
+
+            case "-logFile":
+                if (i + 1 < args.Length) config.LogFilePath = args[++i];
+                break;
+
+            case "-settings":
+                i = ParseSettingsBlock(args, i + 1, config) - 1;
+                break;
+        }
+    }
+    return config;
+}
+```
+
+`-settings` 블록은 다음 플래그가 나오기 전까지(`-`로 시작하는 토큰을 만나기 전까지) Key/Value 쌍을 계속 소비합니다:
+
+```csharp
+private static int ParseSettingsBlock(string[] args, int startIndex, DedicatedServerConfig config)
+{
+    int i = startIndex;
+    while (i + 1 < args.Length && !args[i].StartsWith("-"))
+    {
+        string key = args[i];
+        string value = args[i + 1];
+
+        switch (key)
+        {
+            case "ServerVisible": config.ServerVisible = ParseBool(value); break;
+            case "GamePort": config.GamePort = ParseInt(value, config.GamePort); break;
+            case "ServerName": config.ServerName = value; break;
+            case "ServerPassword": config.ServerPassword = value; break;
+            case "ServerAuthSecret": config.ServerAuthSecret = value; break;
+            case "ServerMaxPlayers": config.ServerMaxPlayers = ParseInt(value, config.ServerMaxPlayers); break;
+            // ... 나머지 키는 코드 참고
+            default:
+                UnityEngine.Debug.LogWarning($"[DedicatedServerConfig] Unknown setting '{key}', ignoring.");
+                break;
+        }
+        i += 2;
+    }
+    return i;
+}
+```
+
+알 수 없는 키는 서버를 크래시시키지 않고 경고만 남긴 뒤 넘어갑니다 — 오타 하나로 전체 서버 기동이 실패하는 것을 방지합니다.
+
+### 4-2. 비밀번호 게이트 / 킥 / 밴 (`DedicatedServerAdmin.cs`)
+
+```csharp
+public bool TryAuthenticateJoin(NetworkConnection conn, string identity, string passwordAttempt, out string rejectReason)
+{
+    if (_bannedIdentities.Contains(identity))
+    {
+        rejectReason = "You are banned from this server.";
+        return false;
+    }
+
+    if (!string.IsNullOrEmpty(Config.ServerPassword) && Config.ServerPassword != passwordAttempt)
+    {
+        rejectReason = "Incorrect server password.";
+        return false;
+    }
+
+    if (NetworkServer.connections.Count >= Config.ServerMaxPlayers)
+    {
+        rejectReason = "Server is full.";
+        return false;
+    }
+
+    _connectionIdentities[conn.connectionId] = identity;
+    rejectReason = null;
+    return true;
+}
+
+public void Kick(NetworkConnection conn, string reason = "Kicked by admin")
+{
+    SendNotice(conn, reason);
+    conn.Disconnect();
+}
+
+public void Ban(string identity, string reason = "Banned by admin")
+{
+    _bannedIdentities.Add(identity);
+    SaveBanList();
+
+    var conn = FindConnectionByIdentity(identity);
+    if (conn != null) Kick(conn, reason);
+}
+
+private void SendNotice(NetworkConnection conn, string message)
+{
+    var writer = new NetworkWriter();
+    writer.StartMessage(CustomMsgs.AdminNotice);
+    writer.Write(message);
+    writer.FinishMessage();
+    conn.SendWriter(writer, Channels.DefaultReliable);
+}
+```
+
+`TryAuthenticateJoin`은 `NetworkConnection` 기본 타입만 받으므로, 5번 섹션에서 만든 `SteamP2PServerController.ShouldAcceptConnection()`에 이 메서드를 그대로 연결해 소켓 접속과 Steam P2P 접속 모두에 동일한 인증 로직을 적용할 수 있습니다. 밴 목록은 connectionId가 아니라 안정적인 식별자(스팀ID, IP 등 프로젝트에 맞는 값)로 관리합니다. connectionId는 재접속할 때마다 바뀌므로 밴 키로 쓸 수 없습니다.
+
+### 4-3. 원격 명령 실행 (`serverrun` 방식)
+
+Stationeers는 클라이언트 콘솔에서 `serverrun <명령>`을 입력하면, 서버와 클라이언트에 동일하게 설정된 `ServerAuthSecret`으로 인증 후 서버에서 명령을 실행하는 방식을 씁니다. 이 패턴을 일반화했습니다:
+
+```csharp
+public bool TryExecuteRemoteCommand(string providedSecret, string command, out string result)
+{
+    if (string.IsNullOrEmpty(Config.ServerAuthSecret) || providedSecret != Config.ServerAuthSecret)
+    {
+        result = "Unauthorized.";
+        return false;
+    }
+    result = DispatchCommand(command);
+    return true;
+}
+
+private string DispatchCommand(string command)
+{
+    var parts = command.Split(' ', 2);
+    string verb = parts[0].ToLowerInvariant();
+    string arg = parts.Length > 1 ? parts[1] : string.Empty;
+
+    switch (verb)
+    {
+        case "say": BroadcastChat(arg); return $"Broadcasted: {arg}";
+        case "kick": return KickByIdentity(arg) ? $"Kicked {arg}" : $"No connected player matching '{arg}'";
+        case "ban": Ban(arg); return $"Banned {arg}";
+        case "unban": Unban(arg); return $"Unbanned {arg}";
+        case "setname": SetServerName(arg); return $"Server name set to '{arg}'";
+        case "setpassword": SetServerPassword(arg); return "Server password updated.";
+        case "help": return "Commands: say <msg>, kick <id>, ban <id>, unban <id>, setname <name>, setpassword <pw>";
+        default: return $"Unknown command '{verb}'. Try 'help'.";
+    }
+}
+```
+
+---
+
+## 데디케이티드 서버 파라미터 전체 목록
+
+### 최상위 플래그
+
+| 플래그 | 값 | 설명 |
+|---|---|---|
+| `-file start` | `<stationname> [worldid] [difficulty] [startcondition] [startlocation]` | 지정한 저장(station)을 불러오거나, 없으면 새 월드를 생성. `stationname`만 필수, 나머지는 선택이지만 하나를 넣으려면 그 앞의 모든 선택 인자도 함께 넣어야 함 |
+| `-logFile` | `"path"` | `output_log.txt` 대신 사용할 커스텀 로그 파일 경로 |
+| `-settings` | 아래 표 | 서버 설정값 일괄 지정. 예: `-settings ServerName "MyServer"` |
+
+### `-settings` 키 목록
+
+| 키 | 값 | 설명 |
+|---|---|---|
+| `ServerVisible` | `true` / `false` | 인게임 서버 목록에 노출 여부 |
+| `GamePort` | `27016` 등 | 플레이어 접속 포트 |
+| `UpdatePort` | `27015` 등 | 스팀 업데이트 포트 |
+| `UPNPEnabled` | `true` / `false` | UPnP(자동 포트포워딩) 사용 여부, 라우터 지원 필요 |
+| `ServerName` | 문자열 | 서버 이름 |
+| `ServerPassword` | 문자열 | 서버 접속 비밀번호 |
+| `ServerAuthSecret` | 문자열 | 관리자 원격 명령(`serverrun`) 인증용 시크릿 |
+| `ServerMaxPlayers` | `1`–`20` | 최대 플레이어 슬롯 (20 초과 비권장) |
+| `AutoSave` | `true` / `false` | 자동 저장 여부 |
+| `SaveInterval` | `300` 등 (초) | 자동 저장 주기, 60초 미만 비권장 |
+| `AutoPauseServer` | `true` / `false` | 접속자가 없을 때 자동 일시정지 여부 |
+| `UseSteamP2P` | `true` / `false` | Steam P2P 접속 허용 여부 (데디케이티드 서버에서는 비활성 권장) |
+| `StartLocalHost` | `true` / `false` | 접속 가능하려면 반드시 필요한 내부 값, 변경 비권장 |
+| `LocalIpAddress` | `0.0.0.0` 등 | (Linux) 서버가 바인딩할 네트워크 인터페이스 |
+
+---
+
+## 부록 아키텍처 요약
+
+```
+DedicatedServerConfig.ParseFromArgs(args)
+   └─ -file / -logFile / -settings 파싱
+
+DedicatedServerAdmin
+   ├─ TryAuthenticateJoin()   : 비밀번호 · 밴 · 정원 체크  ← SteamP2PServerController.ShouldAcceptConnection()에 연결 가능
+   ├─ Kick() / Ban()          : 안정적 식별자 기반 강제 퇴장
+   └─ TryExecuteRemoteCommand(): ServerAuthSecret 인증 후 명령 디스패치
+
+SpawnQueue
+   └─ 씬 오브젝트 일괄 스폰을 프레임당 상한으로 분산
+
+ChunkStreamManager
+   ├─ BuildPriorityOrder()    : 스폰 위치 우선순위 링 + 거리순 정렬
+   └─ StreamChunksRoutine()   : 프레임당 상한 + 진행률 브로드캐스트 (conn.SendWriter 경유 → SteamP2PConnection.TransportSend)
+
+JoinLoadingScreen (클라이언트)
+   ├─ ChunkStreamBeginMessage    → 로딩 화면 표시 + 플레이어 시뮬레이션 정지
+   ├─ ChunkStreamProgressMessage → 프로그레스 바 갱신
+   └─ ChunkStreamCompleteMessage → 시뮬레이션 재개 + 로딩 화면 숨김
+
+```
