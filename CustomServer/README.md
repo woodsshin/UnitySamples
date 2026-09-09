@@ -394,20 +394,20 @@ Client - MonoBehaviour
 └── CustomClient.cs   예측/재조정/보간 전체를 단일 컴포넌트로 구현
 
 Client - ECS/DOTS
-├── NetworkComponents.cs             공유 컴포넌트/싱글톤 정의
-├── NetworkConnectionSystem.cs       소켓 수명 주기, 재연결 워치독
-├── LocalPlayerFixedStepSystem.cs    입력 수집 + 클라이언트 예측
-├── ServerStateApplySystem.cs        스냅샷 적용 + 재조정
-├── RemotePlayerInterpolationSystem.cs  원격 보간
-├── LocalPlayerRenderSmoothingSystem.cs 재조정 오차 스무딩
-├── MissileSystem.cs                 예측 미사일 + 서버 확정 매칭
-├── ScoreboardApplySystem.cs         킬/데스 동기화
-├── UpdateBoundsAndPingSystem.cs     카메라 경계 계산 + RTT 측정
-├── RenderSyncSystems.cs             ECS Transform → Entities Graphics 반영
-├── ShipRenderAuthoring.cs / MissileRenderAuthoring.cs   베이킹용 Authoring
-├── GameBootstrapAuthoring.cs        런타임 프리팹 참조 등록
-├── SimulationConfigAuthoring.cs     서버 상수 미러링 설정
-└── GameHudBridge.cs                 ECS ↔ TextMeshPro/OnGUI 브리지
+├── Components / NetworkComponents.cs             공유 컴포넌트/싱글톤 정의
+├── Systems / NetworkConnectionSystem.cs          소켓 수명 주기, 재연결 워치독
+├── Systems / LocalPlayerFixedStepSystem.cs       입력 수집 + 클라이언트 예측
+├── Systems / ServerStateApplySystem.cs           스냅샷 적용 + 재조정
+├── Systems / RemotePlayerInterpolationSystem.cs  원격 보간
+├── Systems / LocalPlayerRenderSmoothingSystem.cs 재조정 오차 스무딩
+├── Systems / MissileSystem.cs                    예측 미사일 + 서버 확정 매칭
+├── Systems / ScoreboardApplySystem.cs            킬/데스 동기화
+├── Systems / UpdateBoundsAndPingSystem.cs        카메라 경계 계산 + RTT 측정
+├── Systems / RenderSyncSystems.cs                ECS Transform → Entities Graphics 반영
+├── Authoring / ShipRenderAuthoring.cs / MissileRenderAuthoring.cs   베이킹용 Authoring
+├── Authoring / GameBootstrapAuthoring.cs         런타임 프리팹 참조 등록
+├── Authoring / SimulationConfigAuthoring.cs      서버 상수 미러링 설정
+└── UI / GameHudBridge.cs                         ECS ↔ TextMeshPro/OnGUI 브리지
 
 Shared
 ├── SceneSelector.cs          MonoBehaviour/ECS 씬 전환 UI
