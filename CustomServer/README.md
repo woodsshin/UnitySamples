@@ -327,11 +327,36 @@ public void RecordSent(int bytes)
 }
 ```
 
-### 7.1 부하 테스트 데모 영상
+### 7.1 실행 파라미터
+
+```
+LoadTestBot [봇개수] [서버IP] [서버포트] [옵션]
+```
+
+| 인자/옵션 | 설명 | 기본값 |
+|---|---|---|
+| `봇개수` | 생성할 봇(가짜 플레이어) 수. 생략 시 경고 없이 기본값으로 스모크 테스트 규모 실행 | `10` |
+| `서버IP` | 접속할 서버의 IP 주소 (호스트 이름 미지원) | `127.0.0.1` |
+| `서버포트` | 접속할 서버 포트 | `9050` |
+| `--duration <초>` | 테스트 지속 시간(초). 생략 시 Ctrl+C로 직접 종료할 때까지 무제한 실행 | 무제한 |
+| `--spawn-interval-ms <ms>` | 봇 접속을 시간축으로 분산시키는 간격(ms/봇). 동시 접속 폭주 방지용 | `25` |
+
+**예시**
+
+```
+LoadTestBot                 (기본값: 봇 10개, localhost:9050, 무제한)
+LoadTestBot 100
+LoadTestBot 200 192.168.0.10
+LoadTestBot 500 192.168.0.10 9050 --duration 120 --spawn-interval-ms 10
+```
+
+> 서버의 플레이어 ID는 `byte`(0~255) 이며 래핑 처리가 없어, 254개를 초과하는 누적 접속(재접속 포함)이 발생하면 ID가 겹칠 수 있습니다. 또한 이 도구는 종료 시 접속 종료 패킷을 별도로 보내지 않으므로, 프로그램 종료 후에도 서버는 `TIMEOUT_SECONDS`(3초) 동안 봇들을 살아있는 플레이어로 유지하다 정리합니다.
+
+### 7.2 부하 테스트 데모 영상
 
 봇 10개로 시작해 200개까지 순차적으로 늘려가며 서버 처리량과 클라이언트 동기화 상태를 확인한 테스트 영상입니다.
 
-[![Load Test: 10 -> 200 bots](https://img.youtube.com/vi/-qsfweI85r4/maxresdefault.jpg)](https://youtu.be/-qsfweI85r4)
+[![Load Test: 10 -> 200 bots](https://raw.githubusercontent.com/woodsshin/UnitySamples/main/CustomServer/Screenshot/ScreenShot.png)](https://youtu.be/-qsfweI85r4)
 
 ---
 
