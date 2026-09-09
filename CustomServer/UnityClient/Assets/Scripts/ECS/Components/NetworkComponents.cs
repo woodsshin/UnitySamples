@@ -70,7 +70,7 @@ namespace CustomClient.Dots
     // 네트워크로 온 바이트를 그대로 옮겨 담는 순수 값 구조체 (블리터블).
     public struct PlayerStateWire
     {
-        public byte Id;ㄴ
+        public byte Id;
         public int LastProcessedTick;
         public float X;
         public float Y;
