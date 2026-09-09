@@ -1,0 +1,26 @@
+/CustomServer/Build
+/CustomServer/PureServer/.vs
+/CustomServer/PureServer/bin
+/CustomServer/PureServer/obj
+/CustomServer/UnitTest/.vs
+/CustomServer/UnitTest/bin
+/CustomServer/UnitTest/obj
+/CustomServer/UnityClient/.vs
+CustomServer/UnityClient/.vsconfig
+CustomServer/UnityClient/Assembly-CSharp.csproj
+/CustomServer/UnityClient/Library
+/CustomServer/UnityClient/Logs
+/CustomServer/UnityClient/obj
+/CustomServer/UnityClient/Packages
+/CustomServer/UnityClient/Temp
+CustomServer/UnityClient/UserSettings/EditorUserSettings.asset
+CustomServer/UnityClient/UserSettings/Layouts/default-6000.dwlt
+CustomServer/UnityClient/UserSettings/Search.settings
+CustomServer/UnityClient/Sample.sln
+/CustomServer/UnityClient/Assets/TextMesh Pro
+CustomServer/UnityClient/Assets/TextMesh Pro.meta
+CustomServer/UnityClient/Assets/SceneDependencyCache.meta
+/CustomServer/UnityClient/Assets/SceneDependencyCache
+/CustomServer/CustomServer/.vs
+/CustomServer/CustomServer/bin
+/CustomServer/CustomServer/obj

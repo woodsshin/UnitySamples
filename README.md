@@ -28,6 +28,14 @@ Unity(UNET) 기반 게임에 **Steamworks SDK(Steamworks.NET)** 를 통합한 �
 - 실행 화면 스크린샷과 다운로드 가능한 Windows 빌드 포함
 - 30명 이상의 동시 접속을 요구하는 실서비스 규모에 맞춰, PUN 검증 이후 **Photon Quantum**으로 전환한 설계 판단 과정을 함께 정리
 
+### 📁 [CustomServer](./CustomServer)
+
+Unity Dedicated Server 패키지나 상용 넷코드에 의존하지 않고, **순수 C# 콘솔 애플리케이션으로 작성한 UDP 서버**를 중심으로 Server-Authoritative 멀티플레이어 아키텍처를 처음부터 구현·검증한 프로젝트입니다. 동일 서버에 MonoBehaviour/ECS-DOTS 두 클라이언트가 동시 접속 가능하며, 클라이언트 예측·재조정·원격 보간까지 포함합니다.
+
+- 커스텀 바이너리 프로토콜, 60Hz 서버 틱 루프, Wrap 좌표계 기반 재조정 등 자체 구현
+- 순수 .NET 콘솔 부하 테스트 봇으로 200명 규모 동시접속 시뮬레이션 데모 영상 포함
+- 자세한 내용과 빌드 다운로드는 [CustomServer/README.md](./CustomServer/README.md) 참고
+
 ## 읽는 순서 제안
 
-기술적 난이도와 문제 해결 과정을 보고 싶다면 **Networking → Steam** 순으로, 실제 플레이 가능한 결과물을 먼저 보고 싶다면 **PhotonPUNPrototype**부터 확인하는 것을 권장합니다.
+기술적 난이도와 문제 해결 과정을 보고 싶다면 **Networking → Steam → CustomServer** 순으로, 실제 플레이 가능한 결과물을 먼저 보고 싶다면 **PhotonPUNPrototype**부터 확인하는 것을 권장합니다.
