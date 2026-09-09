@@ -4,7 +4,7 @@ Unity의 Dedicated Server(Netcode for GameObjects, Unity Transport 등)에 의�
 
 서버는 Unity 런타임과 완전히 분리되어 있으며, 동일한 서버에 **MonoBehaviour 클라이언트**와 **DOTS/ECS 클라이언트**가 동시에 접속해 같은 게임을 플레이할 수 있음을 검증합니다. 또한 실제 유저 없이도 수십~수백 명 규모의 세션을 재현할 수 있는 **자체 부하 테스트 봇(Load Test Bot)** 을 포함합니다.
 
-> 프로젝트 목적: Unity Dedicated Server 패키지가 강제하는 Netcode 종속성, 빌드 파이프라인, 라이선스 비용 없이도 — 순수 C# 서버 + 커스텀 바이너리 프로토콜만으로 프로덕션 수준의 클라이언트 예측/재조정 멀티플레이어를 구현할 수 있는지를 검증하는 프로젝트입니다.
+> 프로젝트 목적: Unity Dedicated Server 패키지가 강제하는 Netcode 종속성, 빌드 파이프라인, 라이선스 비용 없이도 순수 C# 서버 + 커스텀 바이너리 프로토콜만으로 프로덕션 수준의 클라이언트 예측/재조정 멀티플레이어를 구현할 수 있는지를 검증하는 프로젝트입니다.
 
 ---
 
@@ -24,13 +24,13 @@ Unity의 Dedicated Server(Netcode for GameObjects, Unity Transport 등)에 의�
 
 ## 2. 네트워크 아키텍처 — Server-Authoritative + Client-Side Prediction
 
-Photon Fusion 2, Rocket League의 GGPO 이전 방식과 유사한 **"서버가 유일한 정답(Source of Truth)을 계산하고, 클라이언트는 예측 후 서버 값으로 보정"** 하는 구조입니다.
+Photon Fusion 2, Rocket League의 GGPO 이전 방식과 유사한 **"서버가 Source of Truth를 계산하고, 클라이언트는 예측 후 서버 값으로 보정"** 하는 구조입니다.
 
 ```
 [클라이언트]                                    [서버, 60Hz]
    |-- ClientInput(tick, throttle, turn, fire) -->|
    |   (로컬에서 즉시 SimulateTankStep 실행,      |-- HandleClientInput
-   |    예측 결과를 화면에 먼저 반영)              |   (동일 공식으로 authoritative 시뮬레이션)
+   |    예측 결과를 화면에 먼저 반영)              |   (동일 로직으로 authoritative 시뮬레이션)
    |                                              |
    |<-- ServerState(tick, 전체 플레이어 스냅샷) --|-- BroadcastServerState
    |   pending input 재생 → 오차 계산 →           |
@@ -92,7 +92,7 @@ public static void SimulateTankStep(SimulationConfig config, ref float2 pos, ref
     float2 dir = new float2(Mathf.Sin(rotRad), Mathf.Cos(rotRad));
     pos += dir * speed * dt;
 
-    // 4) 화면 경계 wrap (clamp가 아님 — 반대편에서 재등장)
+    // 4) 화면 경계 wrap (clamp하지 않고 반대편에서 재등장)
     pos.x = WrapCoordinate(pos.x, config.ServerWorldHalfExtent.x);
     pos.y = WrapCoordinate(pos.y, config.ServerWorldHalfExtent.y);
 }
@@ -116,7 +116,7 @@ else if (posErrorSqrMag > config.ErrorThreshold * config.ErrorThreshold)
     predicted.Position = reconciledPos;   // 값은 갱신하되
     offset.Position -= posError;          // 화면 표시는 오프셋으로 서서히 흡수 (RenderErrorOffset)
 }
-// else: 오차가 미미 — 아무것도 하지 않음 (예측 유지)
+// else: 오차가 미미할 경우 아무것도 하지 않음 (예측 유지)
 ```
 
 이후 `LocalPlayerRenderSmoothingSystem`이 매 프레임 `RenderErrorOffset`을 0으로 Lerp 감쇠시켜, 위치 보정이 눈에 띄는 튐 없이 부드럽게 흡수되도록 합니다. 이는 **Rollback 없는 Error-Smoothing 재조정** 방식으로, Fusion 2의 Soft/Hard Correction과 개념적으로 동일합니다.
@@ -135,8 +135,6 @@ private static float WrapCoordinate(float value, float halfExtent)
     return wrapped - halfExtent;             // 다시 [-half, +half)
 }
 ```
-
-> **설계 노트:** 이 상수는 서버 `WORLD_HALF_EXTENT_X/Y`, MonoBehaviour의 `_serverWorldHalfExtent`, ECS `SimulationConfig.ServerWorldHalfExtent` 세 곳에 중복 정의되어 있으며, 코드 주석에서도 반복적으로 "세 값이 정확히 일치해야 재조정이 매 틱 어긋나지 않는다"고 명시합니다. 단일 정답(Source of Truth)을 공유 어셈블리로 분리하지 않고 3중 중복시킨 것은 이 프로젝트가 **의도적 기술 검증용 프로토타입**이며, 실제 프로덕션에서는 Shared Assembly Definition으로 통합해야 할 부채(Tech Debt)임을 인지하고 있습니다.
 
 ---
 
@@ -158,7 +156,7 @@ rt.RotationDeg = Mathf.LerpAngle(s1.RotationDeg, s2.RotationDeg, t);
 
 Wrap 좌표계이므로 일반 `Lerp` 대신 **최단 경로 보간(`LerpWrapped`)** 을 사용해, 경계를 넘나드는 순간 화면을 대각선으로 가로지르는 시각적 오류를 방지합니다.
 
-리스폰처럼 "예측 불가능한 순간이동"은 별도의 `JustRespawnedTag`로 표시해 보간 파이프라인에서 제외하고, 즉시 스냅 처리합니다 — 죽은 위치와 새 스폰 위치를 보간하면 화면을 가로지르는 텔레포트처럼 보이기 때문입니다.
+리스폰처럼 "예측 불가능한 순간이동"은 별도의 `JustRespawnedTag`로 표시해 보간 파이프라인에서 제외하고, 즉시 스냅 처리합니다. 죽은 위치와 새 스폰 위치를 보간하면 화면을 가로지르는 텔레포트처럼 보이기 때문입니다.
 
 ---
 
@@ -220,7 +218,7 @@ public static byte[] BuildClientInput(byte playerId, int clientTick, float throt
 }
 ```
 
-서버 상태 브로드캐스트는 접속 인원수에 비례한 가변 길이 패킷이며, 필드 순서가 송수신 양쪽에서 정확히 일치해야 합니다(스키마 자동 검증 없이 수동 동기화 — 리플렉션/코드 생성 없는 저수준 직렬화의 트레이드오프).
+서버 상태 브로드캐스트는 접속 인원수에 비례한 가변 길이 패킷이며, 필드 순서가 송수신 양쪽에서 정확히 일치해야 합니다(스키마 자동 검증 없이 수동 동기화, 리플렉션/코드 생성 없는 저수준 직렬화의 트레이드오프).
 
 ```csharp
 bw.Write((byte)PacketType.ServerState);
@@ -317,7 +315,7 @@ private void PickNewDriveState()
 }
 ```
 
-`LoadTestStats`는 `Interlocked` 연산만으로 락 없이 패킷/바이트 송수신량을 집계하며, `ConsoleDashboard`가 커서 위치 제어로 콘솔 상단에 실시간 처리량(pkt/s, KB/s)을 고정 표시합니다 — 로그 스트림과 라이브 대시보드가 한 화면에서 스크롤 없이 공존하는 구조입니다.
+`LoadTestStats`는 `Interlocked` 연산만으로 락 없이 패킷/바이트 송수신량을 집계하며, `ConsoleDashboard`가 커서 위치 제어로 콘솔 상단에 실시간 처리량(pkt/s, KB/s)을 고정 표시합니다. 로그 스트림과 라이브 대시보드가 한 화면에서 스크롤 없이 공존하는 구조입니다.
 
 ```csharp
 public void RecordSent(int bytes)
@@ -350,7 +348,7 @@ LoadTestBot 200 192.168.0.10
 LoadTestBot 500 192.168.0.10 9050 --duration 120 --spawn-interval-ms 10
 ```
 
-> 서버의 플레이어 ID는 `byte`(0~255) 이며 래핑 처리가 없어, 254개를 초과하는 누적 접속(재접속 포함)이 발생하면 ID가 겹칠 수 있습니다. 또한 이 도구는 종료 시 접속 종료 패킷을 별도로 보내지 않으므로, 프로그램 종료 후에도 서버는 `TIMEOUT_SECONDS`(3초) 동안 봇들을 살아있는 플레이어로 유지하다 정리합니다.
+> 서버의 플레이어 ID는 `byte`(0~255) 이며 래핑 처리가 없어, 254개를 초과하는 누적 접속(재접속 포함)이 발생하면 ID가 겹칠 수 있습니다. 또한 종료 시 접속 종료 패킷을 별도로 보내지 않으므로, 프로그램 종료 후에도 서버는 `TIMEOUT_SECONDS`(3초) 동안 봇들을 살아있는 플레이어로 유지하다 정리합니다.
 
 ### 7.2 부하 테스트 데모 영상
 
@@ -432,7 +430,7 @@ Shared
 
 ## 기술 스택
 - **Engine**: Unity
-- **Client Architecture**: MonoBehaviour / DOTS-ECS 이중 구현 — 동일 프로토콜로 두 아키텍처의 클라이언트 예측·재조정 비교
+- **Client Architecture**: MonoBehaviour / DOTS-ECS 이중 구현하여 동일 프로토콜로 두 아키텍처의 클라이언트 예측·재조정 비교
 - **Networking (Server)**: 순수 C# UDP 서버 (`System.Net.Sockets`, Unity 런타임 비의존) — Server-Authoritative 시뮬레이션 + 커스텀 바이너리 프로토콜
 - **Networking 방식 비교**: Unity Dedicated Server 및 Photon 계열 상용 솔루션 대비, 자체 서버 구축 시의 실현 가능성과 예상 비용, 기술 제어 수준을 종합 검토
 - **Load Testing**: 순수 .NET 콘솔 봇 클라이언트 (async/await, `PeriodicTimer`) — Unity 클라이언트 없이 대규모 동시접속 시뮬레이션
