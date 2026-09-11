@@ -36,6 +36,15 @@ Unity Dedicated Server 패키지나 상용 넷코드에 의존하지 않고, **�
 - 순수 .NET 콘솔 부하 테스트 봇으로 200명 규모 동시접속 시뮬레이션 데모 영상 포함
 - 자세한 내용과 빌드 다운로드는 [CustomServer/README.md](./CustomServer/README.md) 참고
 
+### 📁 [DeterministicServer](./DeterministicServer)
+
+`CustomServer`의 Server-Authoritative + 클라이언트 예측/재조정 구조를 **Deterministic Lockstep** 구조로 전면 재설계한 후속 프로젝트입니다. 서버는 물리를 전혀 계산하지 않고 입력 수집·중계만 담당하며, DOTS/ECS 클라이언트를 포함한 모든 참여자가 동일한 입력 시퀀스를 동일한 순서로 재생해 각자 독립적으로 물리를 계산합니다. Photon Quantum, RTS 게임들이 사용하는 것과 동일한 개념입니다.
+
+- 커스텀 바이너리 프로토콜을 `TickCommit` 단일 채널로 재설계, 서버 실측 Delta Time 방송으로 고정 틱레이트 가정 제거
+- 참가 순서(`JoinSequence`) 기반 스폰 슬롯/방장 재현, 틱 단위 처리 순서 규약(Join → Leave → Input → Missile → Respawn) 고정 등 lockstep 특유의 동기화 버그를 발견·해결한 과정 포함
+- 물리를 계산하지 않는 순수 .NET 콘솔 부하 테스트 봇으로 대규모 동시접속 트래픽 시뮬레이션
+- 자세한 내용은 [DeterministicServer/README.md](./DeterministicServer/README.md) 참고
+
 ## 읽는 순서 제안
 
-기술적 난이도와 문제 해결 과정을 보고 싶다면 **Networking → Steam → CustomServer** 순으로, 실제 플레이 가능한 결과물을 먼저 보고 싶다면 **PhotonPUNPrototype**부터 확인하는 것을 권장합니다.
+기술적 난이도와 문제 해결 과정을 보고 싶다면 **Networking → Steam → CustomServer → DeterministicServer** 순으로, 실제 플레이 가능한 결과물을 먼저 보고 싶다면 **PhotonPUNPrototype**부터 확인하는 것을 권장합니다.
