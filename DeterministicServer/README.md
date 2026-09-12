@@ -460,6 +460,17 @@ Client - DOTS/ECS (전원이 동일 코드 경로로 물리 계산)
 
 ---
 
+## 11. 빌드 다운로드
+
+| 파일 | 설명 | 링크 |
+|---|---|---|
+| `DeterministicClient.zip` | Unity 클라이언트 빌드 (MonoBehaviour/ECS 씬 선택 가능) | [다운로드](https://drive.google.com/file/d/1oEA--eRsbYmHEB8hci3Z4ielES03dLPv/view?usp=sharing) |
+| `DeterministicSampleServer.zip` | UDP 서버 콘솔 실행 파일 | [다운로드](https://drive.google.com/file/d/1WNLPCeZiOrBe6HJX1rR7OkO2gCJqJLlK/view?usp=sharing) |
+| `DeterministicLoadTestBot.zip` | 부하 테스트 봇 콘솔 실행 파일 | [다운로드](https://drive.google.com/file/d/1jA1U97UGRIRUvt1A37cSBA8jdCXA3oeC/view?usp=sharing) |
+
+> `CustomServer`와 `LoadTestBot` 실행 파일은 .NET 환경이 설치되어 있지 않은 다른 PC에서도 C# 콘솔 프로그램을 바로 실행하려면 단일 파일(Single File) 및 자체 포함(Self-Contained) 옵션으로 빌드되었습니다.
+
+---
 ## 기술 스택
 
 - **Engine**: Unity (DOTS/ECS)

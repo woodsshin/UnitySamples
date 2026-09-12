@@ -1,7 +1,7 @@
-/CustomServer/Build
-/CustomServer/PureServer/.vs
-/CustomServer/PureServer/bin
-/CustomServer/PureServer/obj
+/CustomServer/Build/*
+/CustomServer/CustomServer/.vs
+/CustomServer/CustomServer/bin
+/CustomServer/CustomServer/obj
 /CustomServer/UnitTest/.vs
 /CustomServer/UnitTest/bin
 /CustomServer/UnitTest/obj
@@ -24,3 +24,32 @@ CustomServer/UnityClient/Assets/SceneDependencyCache.meta
 /CustomServer/CustomServer/.vs
 /CustomServer/CustomServer/bin
 /CustomServer/CustomServer/obj
+!/DeterministicServer/README.md
+/DeterministicServer/Build/*
+/DeterministicServer/CustomServer/.vs
+/DeterministicServer/CustomServer/bin
+/DeterministicServer/CustomServer/obj
+/DeterministicServer/UnitTest/.vs
+/DeterministicServer/UnitTest/bin
+/DeterministicServer/UnitTest/obj
+/DeterministicServer/UnityClient/.vs
+DeterministicServer/UnityClient/.vsconfig
+DeterministicServer/UnityClient/Assembly-CSharp.csproj
+/DeterministicServer/UnityClient/Library
+/DeterministicServer/UnityClient/Logs
+/DeterministicServer/UnityClient/obj
+/DeterministicServer/UnityClient/Packages
+/DeterministicServer/UnityClient/Temp
+DeterministicServer/UnityClient/UserSettings/EditorUserSettings.asset
+DeterministicServer/UnityClient/UserSettings/Layouts/default-6000.dwlt
+DeterministicServer/UnityClient/UserSettings/Search.settings
+DeterministicServer/UnityClient/Sample.sln
+/DeterministicServer/UnityClient/Assets/TextMesh Pro
+DeterministicServer/UnityClient/Assets/TextMesh Pro.meta
+DeterministicServer/UnityClient/Assets/SceneDependencyCache.meta
+/DeterministicServer/UnityClient/Assets/SceneDependencyCache
+/DeterministicServer/DeterministicServer/.vs
+/DeterministicServer/DeterministicServer/bin
+/DeterministicServer/DeterministicServer/obj
+
+CustomServer/UnityClient/UnityClient.sln
