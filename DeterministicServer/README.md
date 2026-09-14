@@ -15,7 +15,7 @@ Unity의 Dedicated Server 패키지(Netcode for GameObjects, Unity Transport 등
 기존에 서버가 위치/회전/체력/사망/미사일/스코어를 직접 계산해 브로드캐스트하던 구조를 폐기하고, 서버의 책임을 두 가지로 축소했습니다.
 
 1. 각 플레이어가 보낸 `(TargetTick, Throttle, Turn, Fire)` 입력을 목표 틱(tick)별로 수집한다.
-2. 매 틱마다 "그 틱에 살아있는 모든 플레이어의 입력"을 모아 `TickCommit`으로 방송한다. 아직 도착하지 않은 입력은 마지막 확정 입력을 그대로 재사용한다 (predicted-input fallback).
+2. 매 틱마다 "그 틱에 살아있는 모든 플레이어의 입력"을 모아 `TickCommit`으로 중계한다. 아직 도착하지 않은 입력은 마지막 확정 입력을 그대로 재사용한다 (predicted-input fallback).
 
 ```csharp
 // DeterministicSampleServer.cs — 서버는 위치/회전/체력/사망 등 어떤 물리 필드도 갖지 않는다.
@@ -72,7 +72,7 @@ public struct TickCommitData
 
 ### 2.1 실측 Delta Time — 고정 틱레이트 가정 제거
 
-서버의 목표 틱레이트(60Hz)는 `Thread.Sleep` 기반 루프의 목표치일 뿐, 스레드 스케줄링 오차로 실제 간격이 미세하게 달라질 수 있습니다. 서버는 이를 매 틱 `Stopwatch`로 실측해 `DeltaTimeSeconds`로 함께 방송하고, 클라이언트는 고정된 `1/60`이 아닌 이 실측값을 그대로 물리 dt로 사용합니다.
+서버의 목표 틱레이트(60Hz)는 `Thread.Sleep` 기반 루프의 목표치일 뿐, 스레드 스케줄링 오차로 실제 간격이 미세하게 달라질 수 있습니다. 서버는 이를 매 틱 `Stopwatch`로 실측해 `DeltaTimeSeconds`로 함께 중계하고, 클라이언트는 고정된 `1/60`이 아닌 이 실측값을 그대로 물리 dt로 사용합니다.
 
 ```csharp
 // DeterministicSampleServer.ServerLoop
@@ -85,13 +85,13 @@ BroadcastTickCommit(tick, deltaTimeSeconds, scheduledGameStartThisTick,
     _scheduledJoins, _scheduledLeaves, confirmedInputs, _scheduledLeaveEndPoints);
 ```
 
-이 값 자체가 서버로부터 전원에게 동일하게 방송되므로, 가변 dt를 사용해도 모든 클라이언트가 정확히 동일한 값으로 누적 계산을 수행해 결정론이 깨지지 않습니다.
+이 값 자체가 서버로부터 전원에게 동일하게 중계되므로, 가변 dt를 사용해도 모든 클라이언트가 정확히 동일한 값으로 누적 계산을 수행해 결정론이 깨지지 않습니다.
 
 ---
 
 ## 3. Join Sequence — 접속 순서 재현 버그의 발견과 수정
 
-초기 구현에서는 `PlayerId`(byte, 단조 증가) 오름차순을 "실제 접속 순서"로 가정해 스폰 슬롯을 배정했습니다. 그러나 재접속으로 새 ID를 받거나 byte wraparound가 발생하면 `PlayerId` 순서와 실제 접속 순서가 어긋나, 클라이언트마다 스폰 위치 계산 결과가 달라지는 결정론 붕괴 버그가 발견되었습니다.
+초기 구현에서는 `PlayerId`(byte, 단조 증가) 오름차순을 "실제 접속 순서"로 가정해 스폰 슬롯을 배정했습니다. 그러나 재접속으로 새 ID를 받거나 byte wraparound가 발생하면 `PlayerId` 순서와 실제 접속 순서가 어긋나, 클라이언트마다 스폰 위치 계산 결과가 달라지는 결정론적 규칙이 어긋나는 버그가 발견되었습니다.
 
 이를 서버가 명시적으로 관리하는 전역 단조 증가 카운터 `JoinSequence`로 해결했습니다.
 
@@ -131,7 +131,7 @@ private byte? GetCurrentHostId()
 }
 ```
 
-방장이 퇴장하면 다음 최소값 보유자가 다음 계산에서 자동으로 방장이 되므로, 별도의 승계(succession) 로직이 전혀 필요 없습니다. 서버(`GetCurrentHostId`)와 각 클라이언트(`GameHudBridge.ComputeIsHost`)가 동일한 공식을 각자 독립적으로 계산해 항상 같은 결론에 도달합니다.
+방장이 퇴장하면 다음 최소값 보유자가 다음 계산에서 자동으로 방장이 되므로, 별도의 승계(succession) 로직이 전혀 필요 없습니다. 서버(`GetCurrentHostId`)와 각 클라이언트가 동일한 로직을 각자 독립적으로 계산해 항상 같은 결과를 보장합니다. DOTS 클라이언트는 `GameHudBridge.ComputeIsHost`가, MonoBehaviour 샘플 클라이언트는 `CustomClientSample.ComputeIsHost`가 각자의 플레이어 컬렉션을 순회하며 동일한 최소 `JoinSequence` 탐색 로직을 수행합니다.
 
 ---
 
@@ -178,7 +178,7 @@ private void ProcessOneTick(TickCommitData commit, SimulationConfig config, Enti
 
 ### 4.1 누적 경과 시간 기반 판정 — "N틱 지남"의 폐기
 
-실측 dt 도입으로 "N틱이 지났다"는 사실이 더 이상 일정한 시간 경과를 보장하지 않습니다. 발사 쿨다운과 리스폰 판정은 틱 개수가 아니라, 서버가 방송한 `DeltaTimeSeconds`를 모든 클라이언트가 동일한 순서로 누적한 `TotalElapsedSimTime` 기준으로 이루어집니다.
+실측 dt 도입으로 "N틱이 지났다"는 사실이 더 이상 일정한 시간 경과를 보장하지 않습니다. 발사 쿨다운과 리스폰 판정은 틱 개수가 아니라, 서버가 중계한 `DeltaTimeSeconds`를 모든 클라이언트가 동일한 순서로 누적한 `TotalElapsedSimTime` 기준으로 이루어집니다.
 
 ```csharp
 // SimulationTickSystem.ProcessPlayerTick
@@ -237,7 +237,7 @@ if (_isGameStarted)
 }
 ```
 
-`GameStarted`는 상태가 아니라 엣지(edge) 신호입니다 — 전환이 일어난 딱 한 틱에서만 `true`이고, 클라이언트는 이를 관측한 즉시 영속적인 `IsGameStarted` 상태로 래치(latch)합니다. Join/Leave 목록이 매 틱 빈 리스트로도 계속 전송되는 것과 동일하게, 대역폭 낭비를 피하면서도 신뢰성 있는 상태 전이를 보장하는 설계입니다.
+`GameStarted`는 상태가 아니라 엣지(edge) 신호입니다. 전환이 일어난 딱 한 틱에서만 `true`이고, 클라이언트는 이를 관측한 즉시 영속적인 `IsGameStarted` 상태로 래치(latch)합니다. Join/Leave 목록이 매 틱 빈 리스트로도 계속 전송되는 것과 동일하게, 대역폭 낭비를 피하면서도 신뢰성 있는 상태 전이를 보장하는 설계입니다.
 
 ---
 
@@ -331,7 +331,7 @@ private (float throttle, float turn, bool fire) UpdateBehavior(float dt)
 }
 ```
 
-봇은 `TickCommit`을 받으면 `Tick` 번호만 추출해 자신의 `TargetTick` 계산에 사용하고, `Join`/`Leave`/`Input` 목록은 파싱만 할 뿐 실질적으로 처리하지 않습니다 — 순수하게 서버 입장에서 "실제 클라이언트와 구분되지 않는 트래픽 패턴"을 만드는 것이 유일한 목적입니다.
+봇은 `TickCommit`을 받으면 `Tick` 번호만 추출해 자신의 `TargetTick` 계산에 사용하고, `Join`/`Leave`/`Input` 목록은 파싱만 할 뿐 실질적으로 처리하지 않습니다. 순수하게 서버 입장에서 "실제 클라이언트와 구분되지 않는 트래픽 패턴"을 만드는 것이 유일한 목적입니다.
 
 ```csharp
 private void ProcessPacket(byte[] data)
@@ -395,9 +395,45 @@ LoadTestBot 500 192.168.0.10 9050 --duration 120 --spawn-interval-ms 10
 
 ---
 
-## 9. 재연결(Reconnection) 워치독 — 세션 스코프 상태의 전면 리셋
+### 8.2 부하 테스트 데모 영상
 
-서버 재시작이나 순간적 네트워크 단절 시, 클라이언트는 일정 시간(`ConnectionTimeoutSeconds`) 응답이 없으면 자동으로 소켓을 재생성하고 재접속을 시도합니다. Lockstep 구조에서는 재연결이 곧 "새로운 틱 시퀀스의 시작"을 의미하므로, `LastConfirmedTick`뿐 아니라 그로부터 파생되는 모든 세션 스코프 값을 함께 리셋해야 합니다.
+봇 10개로 결정론적 상태를 확인한 테스트 영상입니다. 위치 확인을 위해서 소수점 넷째자리까지 표시합니다.
+
+[![Deterministic PlayTest: 10 bots](https://raw.githubusercontent.com/woodsshin/UnitySamples/main/DeterministicServer/Screenshot/ScreenShot.png)](https://youtu.be/SoECz6Zym2s)
+
+---
+
+## 9. 연결 끊김 처리 — 재시도 없는 즉시 EntryScene 전환
+
+서버로부터 `ConnectionTimeoutSeconds` 이상 아무 응답도 없으면(`TimeSinceLastServerMessageMs` 기준), 재시도 없이 곧바로 소켓을 닫고 `EntryScene`으로 전환합니다.
+
+```csharp
+// NetworkConnectionSystem.CheckConnectionLost
+private void CheckConnectionLost(ref ClientStateSingleton clientState, SimulationConfig config, NetworkConnectionData netData)
+{
+    if (netData.UdpClient == null) return;
+    if (clientState.IsConnectionLost) return;
+
+    long lastMsgMs = Interlocked.Read(ref netData.TimeSinceLastServerMessageMs);
+    long nowMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+    float secondsSinceLastMessage = (nowMs - lastMsgMs) / 1000f;
+
+    if (secondsSinceLastMessage < config.ConnectionTimeoutSeconds) return;
+
+    clientState.IsConnectionLost = true;
+    clientState.SceneTransitionCountdownSeconds = 0f;   // 거부 응답의 3초 대기와 달리 즉시 전환
+
+    if (netData.UdpClient != null)
+    {
+        try { netData.UdpClient.Close(); } catch { }
+        netData.UdpClient = null;
+    }
+}
+```
+
+같은 판단 로직(`UdpClient`를 닫고 재시도하지 않은 채 `EntryScene`으로 이동)이 DOTS 클라이언트(`NetworkConnectionSystem.CheckConnectionLost`)와 MonoBehaviour 샘플 클라이언트(`CustomClientSample.UpdateConnectionLossCheck`) 양쪽에 동일하게 구현되어 있습니다.
+
+연결이 새로 시작될 때(`ConnectToServer` 호출 시점, 그리고 System/컴포넌트 종료 시점)는 `DisconnectInternal`이 세션 스코프 상태를 초기값으로 되돌립니다. Lockstep 구조에서는 새로운 연결이 곧 "새로운 틱 시퀀스의 시작"을 의미하므로, `LastConfirmedTick`뿐 아니라 그로부터 파생되는 모든 세션 스코프 값을 함께 리셋해야 합니다.
 
 ```csharp
 // NetworkConnectionSystem.DisconnectInternal
@@ -410,23 +446,12 @@ clientState.LastConfirmedTick = -1;
 // 계산되어 완전히 어긋난다.
 clientState.TotalElapsedSimTime = 0f;
 
-// IsGameStarted도 동일한 이유로 리셋 — 재연결은 새로운 세션이므로 로비 상태부터
+// IsGameStarted도 동일한 이유로 리셋 — 새 연결은 새로운 세션이므로 로비 상태부터
 // 다시 관찰해야 한다.
 clientState.IsGameStarted = false;
 ```
 
-원본 구현에서 `TotalElapsedSimTime`만 리셋하고 이 필드를 빠뜨렸다면, 새 세션의 발사 쿨다운/리스폰 판정 기준선이 이전 세션의 누적값과 뒤섞이는 조용한 버그로 이어졌을 지점입니다 — 세션 경계에서 리셋해야 하는 상태를 한 곳에 모아 관리하는 이유이기도 합니다.
-
-재연결이 완료되면, 재연결 감지 로직 자체가 `struct` 타입 컴포넌트의 값 복사 특성으로 인해 낡은 스냅샷을 실수로 덮어쓰지 않도록 명시적으로 최신 상태를 다시 읽어옵니다.
-
-```csharp
-// UpdateReconnectionWatchdog — ConnectToServer() 이후 반드시 재동기화해야 하는 이유
-// ClientStateSingleton은 struct이므로 GetComponentData는 항상 값 복사본을 반환한다.
-// 여기서 다시 읽어오지 않으면, 이 함수를 호출한 OnUpdate()의 낡은 clientState가
-// DisconnectInternal이 방금 끝낸 리셋을 그대로 덮어써버린다 — "연결하자마자 계속
-// 재접속"의 원인이었다.
-clientState = EntityManager.GetComponentData<ClientStateSingleton>(_networkEntity);
-```
+`TotalElapsedSimTime`만 리셋하고 이 필드들을 빠뜨렸다면, 새 세션의 발사 쿨다운/리스폰 판정 기준선이 이전 세션의 누적값과 뒤섞이는 버그로 이어졌을 지점입니다. 세션 경계에서 리셋해야 하는 상태를 한 곳에 모아 관리하는 이유이기도 합니다. `DisconnectInternal`은 재시도 루프의 일부가 아니라 `ConnectToServer`의 첫 단계(새 연결 시작 전 정리)와 System/컴포넌트 종료 시 단 두 곳에서만 호출됩니다.
 
 ---
 
@@ -446,7 +471,7 @@ Shared Protocol
 
 Client - DOTS/ECS (전원이 동일 코드 경로로 물리 계산)
 ├── NetworkComponents.cs            공유 컴포넌트/싱글톤 정의 (TankPhysicsState 등)
-├── NetworkConnectionSystem.cs      소켓 수명 주기, 재연결 워치독, 세션 스코프 리셋
+├── NetworkConnectionSystem.cs      소켓 수명 주기, 연결 끊김 감지(재시도 없이 EntryScene 전환), 세션 스코프 리셋
 ├── InputCaptureSystem.cs           입력 수집 + Input Delay 계산 (예측 없음)
 ├── SimulationTickSystem.cs         TickCommit 재생 → 이동/발사/충돌/사망/리스폰 (Lockstep 핵심)
 ├── PhysicsToRenderSyncSystem.cs    TankPhysicsState/MissileMotion → RenderTransform2D
@@ -456,6 +481,12 @@ Client - DOTS/ECS (전원이 동일 코드 경로로 물리 계산)
 ├── Authoring / GameBootstrapAuthoring.cs      런타임 프리팹 참조 등록
 ├── Authoring / SimulationConfigAuthoring.cs   서버와 공유해야 하는 물리 상수 설정
 └── UI / GameHudBridge.cs           ECS ↔ TextMeshPro/OnGUI 브리지, 로비/방장 UI
+
+Client - MonoBehaviour (DOTS와 동일한 프로토콜/Lockstep 로직을 단일 클래스로 재현)
+└── CustomClient.cs                 CustomClientSample — 연결/시뮬레이션/렌더 동기화/OnGUI HUD를
+                                     한 MonoBehaviour에 모은 버전. ECS 컴포넌트 분리 대신 클래스
+                                     필드로 물리+점수(PlayerRuntimeState)을 보관하지만, 처리
+                                     순서·정렬 규약·판정 로직은 DOTS 클라이언트와 정확히 동일
 ```
 
 ---
@@ -468,14 +499,14 @@ Client - DOTS/ECS (전원이 동일 코드 경로로 물리 계산)
 | `DeterministicSampleServer.zip` | UDP 서버 콘솔 실행 파일 | [다운로드](https://drive.google.com/file/d/1WNLPCeZiOrBe6HJX1rR7OkO2gCJqJLlK/view?usp=sharing) |
 | `DeterministicLoadTestBot.zip` | 부하 테스트 봇 콘솔 실행 파일 | [다운로드](https://drive.google.com/file/d/1jA1U97UGRIRUvt1A37cSBA8jdCXA3oeC/view?usp=sharing) |
 
-> `CustomServer`와 `LoadTestBot` 실행 파일은 .NET 환경이 설치되어 있지 않은 다른 PC에서도 C# 콘솔 프로그램을 바로 실행하려면 단일 파일(Single File) 및 자체 포함(Self-Contained) 옵션으로 빌드되었습니다.
+> `DeterministicSampleServer`와 `LoadTestBot` 실행 파일은 .NET 환경이 설치되어 있지 않은 다른 PC에서도 C# 콘솔 프로그램을 바로 실행하려면 단일 파일(Single File) 및 자체 포함(Self-Contained) 옵션으로 빌드되었습니다.
 
 ---
 ## 기술 스택
 
 - **Engine**: Unity (DOTS/ECS)
-- **Client Architecture**: Deterministic Lockstep — 서버는 입력만 중계하고, 모든 클라이언트(DOTS 클라이언트 + Load Test Bot)가 동일한 입력 시퀀스를 동일한 순서로 재생해 독립적으로 물리 계산
+- **Client Architecture**: Deterministic Lockstep. 서버는 입력만 중계하고, 모든 클라이언트(DOTS 클라이언트 + MonoBehaviour 샘플 클라이언트)가 동일한 입력 시퀀스를 동일한 순서로 재생해 독립적으로 물리 계산. Load Test Bot은 이 물리 계산에는 참여하지 않고 동일한 프로토콜로 트래픽만 생성
 - **Networking (Server)**: 순수 C# UDP 서버 (`System.Net.Sockets`, Unity 런타임 비의존) — Physics-less Input Relay + 커스텀 바이너리 프로토콜
-- **결정론 보장 기법**: 실측 Delta Time 방송, `JoinSequence` 기반 참가 순서 재현, 틱 단위 처리 순서 규약(Join → Leave → Input → Missile → Respawn) 고정, 롤백 없는 Input Delay
+- **결정론 보장 기법**: 실측 Delta Time 중계, `JoinSequence` 기반 참가 순서 재현, 틱 단위 처리 순서 규약(Join → Leave → Input → Missile → Respawn) 고정, 롤백 없는 Input Delay
 - **Load Testing**: 순수 .NET 콘솔 봇 클라이언트 (async/await, `PeriodicTimer`) — 물리 계산 없이 서버 입장에서 실제 클라이언트와 구분되지 않는 트래픽 패턴 생성
 - **Genre**: Top-down Arcade Combat (2D 우주선 슈팅, 실시간 PvP)
