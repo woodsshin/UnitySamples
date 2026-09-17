@@ -28,6 +28,23 @@ A multiplayer prototype built on the **Photon PUN (Photon Unity Networking) Lobb
 - Includes gameplay screenshots and a downloadable Windows build
 - Also documents the design decision process behind transitioning to **Photon Quantum** after validating with PUN, to meet real-service scale requirements of 30+ concurrent users
 
+### 📁 [CustomServer](./CustomServer/README_EN.md)
+
+A project that implements and validates a server-authoritative multiplayer architecture from the ground up, centered on **a UDP server written as a pure C# console application** — with no reliance on Unity's Dedicated Server package or any commercial netcode. Both a MonoBehaviour client and an ECS-DOTS client can connect to the same server at once, and the project covers client-side prediction, reconciliation, and remote interpolation.
+
+- A custom binary protocol, a 60 Hz server tick loop, and reconciliation over a wrapped coordinate space, all implemented from scratch
+- Includes a demo video simulating 200 concurrent users with a pure .NET console load-testing bot
+- See [CustomServer/README_EN.md](./CustomServer/README_EN.md) for details and build downloads
+
+### 📁 [DeterministicServer](./DeterministicServer/README_EN.md)
+
+A follow-up project that completely redesigns `CustomServer`'s server-authoritative + client prediction/reconciliation structure into a **deterministic lockstep** architecture. The server computes no physics at all, handling only input collection and relay, while every participant — including the DOTS/ECS client — replays the same input sequence in the same order and computes physics independently. This is the same concept used by Photon Quantum and by RTS games.
+
+- Redesigned the custom binary protocol around a single `TickCommit` channel, and removed the fixed-tickrate assumption by broadcasting the server's measured delta time
+- Covers finding and fixing the synchronization bugs specific to lockstep — reproducing spawn slots and host assignment from join order (`JoinSequence`), and pinning down a per-tick processing order convention (Join → Leave → Input → Missile → Respawn)
+- Simulates large-scale concurrent traffic with a pure .NET console load-testing bot that runs no physics
+- See [DeterministicServer/README_EN.md](./DeterministicServer/README_EN.md) for details
+
 ## Suggested Reading Order
 
-If you'd like to see the technical difficulty and problem-solving process, we recommend reading **Networking → Steam** in that order. If you'd like to see the actual playable result first, start with **PhotonPUNPrototype**.
+If you'd like to see the technical difficulty and problem-solving process, we recommend reading **Networking → Steam → CustomServer → DeterministicServer** in that order. If you'd like to see the actual playable result first, start with **PhotonPUNPrototype**.
