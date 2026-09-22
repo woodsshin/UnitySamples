@@ -428,10 +428,118 @@ Shared
 
 ---
 
+## 11. C++ 서버 포팅 — 프로토콜/시뮬레이션 로직의 언어 독립성 검증
+
+섹션 1에서 검증한 것이 "Unity 엔진으로부터의 독립"이라면, 이 섹션은 한 단계 더 나아가 **와이어 프로토콜과 서버 시뮬레이션 로직 자체가 특정 언어/런타임에 종속되지 않는지**를 검증합니다. `CustomServer.cs`와 동일한 동작을 목표로 C++17로 서버를 새로 작성했으며, 두 구현체는 **동일한 Unity 클라이언트를 대상으로 프로토콜 레벨에서 상호 대체 가능**합니다.
+
+> 이식 목표: 상수(`Protocol.h`) · 패킷 필드 순서 · 틱당 연산 순서 · wrap/충돌/리스폰 판정을 C# 원본과 수치적으로 동일하게 유지하는 것. 하나라도 어긋나면 클라이언트 예측 결과가 서버 값과 계속 어긋나며 지속적인 재조정 스냅으로 드러납니다.
+
+| 항목 | C# 서버 (`CustomServer.cs`) | C++ 서버 (`CustomServer.cpp`) |
+|---|---|---|
+| 언어/표준 | C# / .NET | C++17 |
+| 네트워크 API | `System.Net.Sockets.UdpClient` | POSIX 소켓 / Winsock2 (`socket_t`로 플랫폼 추상화) |
+| 동시성 제어 | `ConcurrentDictionary` | `std::mutex` + `std::unordered_map` (`_Locked` 네이밍 컨벤션으로 락 보유 전제 명시) |
+| 바이너리 직렬화 | `BinaryReader` / `BinaryWriter` | 수동 리틀엔디안 바이트 인코딩 (`BinaryStream.h`) |
+| 빌드/배포 | `dotnet publish` (Self-Contained 번들) | `make` — 외부 런타임 의존성 없는 네이티브 바이너리 |
+| 와이어 프로토콜 & 틱 연산 순서 | PacketType 1~8, 회전→가감속→이동→wrap→발사 | **완전 동일** — 두 서버가 같은 클라이언트를 대상으로 상호 대체 가능 |
+
+### 11.1 바이너리 프로토콜 호환성
+
+`BinaryStream.h`는 .NET의 `BinaryReader`/`BinaryWriter`가 생성하는 와이어 포맷을 바이트 단위로 재현합니다. 고정 폭 리틀엔디안 정수, 32비트 IEEE-754 부동소수점(`float`), 그리고 `bool`을 1바이트(0/1)로 쓰는 규칙까지 동일하게 맞춰 **C# 서버용으로 설계된 클라이언트 패킷을 C++ 서버가 그대로 파싱**할 수 있도록 했습니다. 64비트 `double` 경로(`WriteDouble`/`ReadDouble`)는 구현되어 있지 않지만, `PlayerState`/`MissileState`의 모든 실수 필드가 `float`이라 프로토콜 범위 안에서는 제약이 없습니다.
+
+```cpp
+void WriteSingle(float v)
+{
+    static_assert(sizeof(float) == 4, "expected 32-bit float");
+    uint32_t bits;
+    std::memcpy(&bits, &v, 4);   // IEEE-754 비트 패턴을 그대로 추출
+    WriteUInt32Raw(bits);         // 리틀엔디안 4바이트로 기록
+}
+```
+
+x86/x64는 이미 리틀엔디안이므로 네이티브 타입을 그대로 `memcpy`해도 동작하지만, 호스트 엔디언에 암묵적으로 의존하지 않도록 바이트 단위 시프트/마스킹을 명시적으로 구현했습니다.
+
+### 11.2 동시성 모델 이식 — `ConcurrentDictionary` → `std::mutex`
+
+C#의 `ConcurrentDictionary`는 컬렉션 자체가 스레드 안전하지만, C++ 표준 라이브러리 컨테이너는 그렇지 않습니다. 대신 **단일 `std::mutex`로 `players_`/`missiles_`/`scoreboard_` 전체를 보호**하는 coarse-grained 락으로 대체했습니다. 매 틱마다 전체 플레이어/미사일에 대해 일관된 스냅샷이 필요하다는 점, 그리고 이 규모의 패킷량에서는 단일 뮤텍스가 병목이 되지 않는다는 판단에 따른 설계입니다.
+
+```cpp
+while (isRunning_)
+{
+    serverTick++;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        CheckTimeouts_Locked();
+        CheckRespawns_Locked();
+        UpdateMissiles_Locked(dt);
+        BroadcastServerState_Locked(serverTick);
+        BroadcastMissileState_Locked(serverTick);
+        BroadcastScoreboardState_Locked();
+    }
+    std::this_thread::sleep_for(intervalMs);
+}
+```
+
+락을 요구하는 모든 private 메서드에 `_Locked` 접미사를 붙이는 네이밍 컨벤션으로 "호출자가 이미 락을 들고 있어야 한다"는 계약을 시그니처만으로 드러냈습니다. 수신 스레드(`ReceiveLoop`)와 틱 루프 스레드(`ServerLoop`)로 분리된 이중 스레드 구조 자체는 C# 원본과 동일합니다.
+
+### 11.3 시뮬레이션 동치성 — 동일 연산 순서, 동일 공식
+
+`HandleClientInput`의 회전 → 가감속 → 이동 → wrap → 발사 순서는 C#의 `SimulateTankStep`과 정확히 동일합니다. 순서가 하나라도 바뀌면 클라이언트 예측 결과와 서버 결과가 갈라지기 때문에, 소스 주석에도 이 순서를 바꾸면 클라이언트 예측이 어긋난다고 명시해 두었습니다. 좌표 wrap 공식도 동일하게 이식했습니다.
+
+```cpp
+float CustomServer::WrapCoordinate(float value, float halfExtent)
+{
+    float range = halfExtent * 2.0f;
+    if (range <= 0.0f) return 0.0f;
+
+    float shifted = value + halfExtent;
+    float wrapped = std::fmod(shifted, range);
+    if (wrapped < 0.0f) wrapped += range; // fmod는 피제수의 부호를 따름 (C#의 %와 동일)
+    return wrapped - halfExtent;
+}
+```
+
+C#의 `%`와 C++의 `std::fmod`는 둘 다 피제수(왼쪽 피연산자)의 부호를 따르는 동일한 의미론을 가지므로, 음수 보정 로직까지 그대로 옮겨 결과가 어긋나지 않도록 했습니다.
+
+### 11.4 플랫폼 이식 디테일 — 시간 센티널과 크로스플랫폼 소켓
+
+C#에서 C++로 옮기며 언어/런타임 차이 때문에 별도로 신경 써야 했던 지점들입니다.
+
+**시간 센티널.** C#은 `DateTime.MinValue`를 "무한히 과거"를 뜻하는 센티널로 사용해, 최초 발사 시 쿨다운 체크가 항상 통과하도록 만듭니다. 그런데 `std::chrono::steady_clock`은 기본 생성된 `time_point`가 반드시 먼 과거를 가리킨다는 보장이 없습니다(플랫폼에 따라 에포크가 부팅 시점일 수 있음). 이를 그대로 이식하면 프로세스 시작 직후에는 "먼 과거"가 아니라 작은 값이 되어 버그로 이어질 수 있어, 명시적인 안전 오프셋을 둔 센티널 함수를 별도로 작성했습니다.
+
+```cpp
+inline TimePoint FarPast()
+{
+    // TimePoint::min() 자체는 여기서 빼기 연산 시 오버플로우 위험이 있어
+    // 안전 여유를 둔 오프셋을 사용
+    return TimePoint::min() + std::chrono::hours(24 * 365 * 10);
+}
+```
+
+**크로스플랫폼 소켓.** Windows(Winsock2)와 POSIX(Linux 등) 양쪽에서 동일 소스로 컴파일되도록 `socket_t` 타입과 `#ifdef _WIN32` 분기로 소켓 API를 추상화했습니다. Windows UDP 소켓에서 잘 알려진 함정 — 이전 `sendto`가 ICMP Port Unreachable을 유발하면 이후 바인딩되고 연결되지 않은(unconnected) 소켓의 `recvfrom`이 `WSAECONNRESET`으로 실패하는 현상 — 에 대한 C#의 `SIO_UDP_CONNRESET` 억제 처리도 Windows 빌드에서 동일하게 대응하되, 이 현상이 발생하지 않는 Linux 빌드에서는 문서화 목적의 no-op으로 남겨 두었습니다.
+
+### 11.5 빌드 및 테스트
+
+외부 패키지 의존성 없이 표준 라이브러리와 플랫폼 소켓 헤더만으로 빌드됩니다.
+
+```makefile
+CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -pthread
+```
+
+```
+make        # custom_server 바이너리 생성
+make run    # 빌드 후 즉시 실행
+```
+
+`main.cpp`는 C# 원본처럼 기본적으로 Enter 입력을 기다려 서버를 종료하지만, `CUSTOM_SERVER_RUN_SECONDS` 환경 변수가 설정된 경우 고정 시간만 실행 후 자동 종료하는 테스트 전용 경로를 추가했습니다. 표준 입력을 붙들고 있을 필요 없이 자동화된 테스트 파이프라인에서 서버를 기동·검증할 수 있습니다.
+
+---
+
 ## 기술 스택
 - **Engine**: Unity
 - **Client Architecture**: MonoBehaviour / DOTS-ECS 이중 구현하여 동일 프로토콜로 두 아키텍처의 클라이언트 예측·재조정 비교
 - **Networking (Server)**: 순수 C# UDP 서버 (`System.Net.Sockets`, Unity 런타임 비의존) — Server-Authoritative 시뮬레이션 + 커스텀 바이너리 프로토콜
+- **Server Port**: C++17 서버 포팅 (`std::mutex`, POSIX/Winsock 크로스플랫폼 소켓) — C# 서버와 와이어 프로토콜·시뮬레이션 연산 순서 완전 동일, 언어/런타임 독립성 검증
 - **Networking 방식 비교**: Unity Dedicated Server 및 Photon 계열 상용 솔루션 대비, 자체 서버 구축 시의 실현 가능성과 예상 비용, 기술 제어 수준을 종합 검토
 - **Load Testing**: 순수 .NET 콘솔 봇 클라이언트 (async/await, `PeriodicTimer`) — Unity 클라이언트 없이 대규모 동시접속 시뮬레이션
 - **Genre**: Top-down Arcade Combat (2D 우주선 슈팅, 실시간 PvP)

@@ -30,9 +30,10 @@ Unity(UNET) 기반 게임에 **Steamworks SDK(Steamworks.NET)** 를 통합한 �
 
 ### 📁 [CustomServer](./CustomServer)
 
-Unity Dedicated Server 패키지나 상용 넷코드에 의존하지 않고, **순수 C# 콘솔 애플리케이션으로 작성한 UDP 서버**를 중심으로 Server-Authoritative 멀티플레이어 아키텍처를 처음부터 구현·검증한 프로젝트입니다. 동일 서버에 MonoBehaviour/ECS-DOTS 두 클라이언트가 동시 접속 가능하며, 클라이언트 예측·재조정·원격 보간까지 포함합니다.
+Unity Dedicated Server 패키지나 상용 넷코드에 의존하지 않고, **순수 C# 콘솔 애플리케이션으로 작성한 UDP 서버**를 중심으로 Server-Authoritative 멀티플레이어 아키텍처를 처음부터 구현·검증한 프로젝트입니다. 동일 서버에 MonoBehaviour/ECS-DOTS 두 클라이언트가 동시 접속 가능하며, 클라이언트 예측·재조정·원격 보간까지 포함합니다. 이후 C++17로 서버를 별도 포팅하여, 와이어 프로토콜과 시뮬레이션 로직이 특정 언어/런타임에 종속되지 않음을 검증했습니다.
 
 - 커스텀 바이너리 프로토콜, 60Hz 서버 틱 루프, Wrap 좌표계 기반 재조정 등 자체 구현
+- C++17로 서버를 별도 포팅해 C#/C++ 두 구현체가 동일 클라이언트를 대상으로 프로토콜 레벨에서 상호 대체 가능함을 검증
 - 순수 .NET 콘솔 부하 테스트 봇으로 200명 규모 동시접속 시뮬레이션 데모 영상 포함
 - 자세한 내용과 빌드 다운로드는 [CustomServer/README.md](./CustomServer/README.md) 참고
 

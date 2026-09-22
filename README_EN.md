@@ -30,9 +30,10 @@ A multiplayer prototype built on the **Photon PUN (Photon Unity Networking) Lobb
 
 ### 📁 [CustomServer](./CustomServer/README_EN.md)
 
-A project that implements and validates a server-authoritative multiplayer architecture from the ground up, centered on **a UDP server written as a pure C# console application** — with no reliance on Unity's Dedicated Server package or any commercial netcode. Both a MonoBehaviour client and an ECS-DOTS client can connect to the same server at once, and the project covers client-side prediction, reconciliation, and remote interpolation.
+A project that implements and validates a server-authoritative multiplayer architecture from the ground up, centered on **a UDP server written as a pure C# console application** — with no reliance on Unity's Dedicated Server package or any commercial netcode. Both a MonoBehaviour client and an ECS-DOTS client can connect to the same server at once, and the project covers client-side prediction, reconciliation, and remote interpolation. The server was also ported to C++17, validating that the wire protocol and simulation logic are not tied to any specific language or runtime.
 
 - A custom binary protocol, a 60 Hz server tick loop, and reconciliation over a wrapped coordinate space, all implemented from scratch
+- Ported the server to C++17 as well, validating that the C# and C++ implementations are interchangeable at the protocol level for the same client
 - Includes a demo video simulating 200 concurrent users with a pure .NET console load-testing bot
 - See [CustomServer/README_EN.md](./CustomServer/README_EN.md) for details and build downloads
 

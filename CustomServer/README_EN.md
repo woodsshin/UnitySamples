@@ -429,10 +429,118 @@ Shared
 
 ---
 
+## 11. C++ Server Port — Validating Language Independence of the Protocol and Simulation Logic
+
+If Section 1 validated independence from the Unity engine, this section goes a step further and validates whether **the wire protocol and server simulation logic themselves are tied to any specific language or runtime**. The server was rewritten from scratch in C++17, targeting behavior identical to `CustomServer.cs`, and the two implementations are **interchangeable at the protocol level against the same Unity client**.
+
+> Porting goal: keep constants (`Protocol.h`), packet field order, per-tick computation order, and wrap/collision/respawn judgments numerically identical to the C# original. If even one of these drifts, client prediction will keep diverging from server values, surfacing as constant reconciliation snaps.
+
+| Aspect | C# Server (`CustomServer.cs`) | C++ Server (`CustomServer.cpp`) |
+|---|---|---|
+| Language/Standard | C# / .NET | C++17 |
+| Network API | `System.Net.Sockets.UdpClient` | POSIX sockets / Winsock2 (platform-abstracted via `socket_t`) |
+| Concurrency Control | `ConcurrentDictionary` | `std::mutex` + `std::unordered_map` (`_Locked` naming convention makes the lock-held precondition explicit) |
+| Binary Serialization | `BinaryReader` / `BinaryWriter` | Manual little-endian byte encoding (`BinaryStream.h`) |
+| Build/Deployment | `dotnet publish` (Self-Contained bundle) | `make` — native binary with no external runtime dependency |
+| Wire Protocol & Tick Computation Order | PacketType 1–8, rotate→accelerate/decelerate→move→wrap→fire | **Fully identical** — the two servers are interchangeable against the same client |
+
+### 11.1 Binary Protocol Compatibility
+
+`BinaryStream.h` reproduces, byte for byte, the wire format produced by .NET's `BinaryReader`/`BinaryWriter`. It matches fixed-width little-endian integers, 32-bit IEEE-754 floating-point (`float`), and even the convention of writing `bool` as a single byte (0/1), so that **the C++ server can parse client packets designed for the C# server as-is**. The 64-bit `double` path (`WriteDouble`/`ReadDouble`) is not implemented, but since every real-valued field in `PlayerState`/`MissileState` is a `float`, this is not a limitation within the scope of the protocol.
+
+```cpp
+void WriteSingle(float v)
+{
+    static_assert(sizeof(float) == 4, "expected 32-bit float");
+    uint32_t bits;
+    std::memcpy(&bits, &v, 4);   // Extract the IEEE-754 bit pattern as-is
+    WriteUInt32Raw(bits);         // Write as 4 little-endian bytes
+}
+```
+
+x86/x64 is already little-endian, so a raw `memcpy` of the native type would work too, but the byte-level shifting/masking is implemented explicitly so the behavior doesn't implicitly depend on host endianness.
+
+### 11.2 Porting the Concurrency Model — `ConcurrentDictionary` → `std::mutex`
+
+C#'s `ConcurrentDictionary` is thread-safe as a collection in its own right, but C++'s standard library containers are not. This was replaced with a **coarse-grained lock, using a single `std::mutex` to protect `players_`/`missiles_`/`scoreboard_` as a whole**. The design reflects two judgments: every tick needs a consistent snapshot across all players/missiles anyway, and a single mutex doesn't become a bottleneck at this packet volume.
+
+```cpp
+while (isRunning_)
+{
+    serverTick++;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        CheckTimeouts_Locked();
+        CheckRespawns_Locked();
+        UpdateMissiles_Locked(dt);
+        BroadcastServerState_Locked(serverTick);
+        BroadcastMissileState_Locked(serverTick);
+        BroadcastScoreboardState_Locked();
+    }
+    std::this_thread::sleep_for(intervalMs);
+}
+```
+
+A naming convention appends `_Locked` to every private method that requires the lock, so the contract — "the caller must already be holding the lock" — is visible from the signature alone. The dual-thread structure itself, with a separate receive thread (`ReceiveLoop`) and tick-loop thread (`ServerLoop`), is identical to the C# original.
+
+### 11.3 Simulation Equivalence — Identical Computation Order, Identical Formulas
+
+The rotate → accelerate/decelerate → move → wrap → fire order in `HandleClientInput` is exactly identical to C#'s `SimulateTankStep`. If even one step in this order changes, client prediction and server results diverge, so the source comments explicitly note that reordering these steps would desync client prediction. The coordinate wrap formula was ported identically as well.
+
+```cpp
+float CustomServer::WrapCoordinate(float value, float halfExtent)
+{
+    float range = halfExtent * 2.0f;
+    if (range <= 0.0f) return 0.0f;
+
+    float shifted = value + halfExtent;
+    float wrapped = std::fmod(shifted, range);
+    if (wrapped < 0.0f) wrapped += range; // fmod keeps the sign of the dividend (same as C#'s %)
+    return wrapped - halfExtent;
+}
+```
+
+C#'s `%` and C++'s `std::fmod` share the same semantics — both follow the sign of the dividend (the left-hand operand) — so the negative-value correction logic was carried over as-is to keep the results from diverging.
+
+### 11.4 Platform-Porting Details — Time Sentinels and Cross-Platform Sockets
+
+These are the points that needed separate attention, specifically because of language/runtime differences, when moving from C# to C++.
+
+**Time Sentinel.** C# uses `DateTime.MinValue` as a sentinel meaning "infinitely far in the past," so the very first fire's cooldown check always passes. `std::chrono::steady_clock`, however, offers no guarantee that a default-constructed `time_point` points to a far-past moment (its epoch can be the boot time, depending on the platform). Porting this literally would mean that, right after process startup, the value could end up small rather than "far in the past," leading to a bug — so a separate sentinel function with an explicit, safe offset was written instead.
+
+```cpp
+inline TimePoint FarPast()
+{
+    // TimePoint::min() itself risks overflow on subtraction here,
+    // so an offset with safe headroom is used instead
+    return TimePoint::min() + std::chrono::hours(24 * 365 * 10);
+}
+```
+
+**Cross-Platform Sockets.** The socket API is abstracted behind a `socket_t` type and `#ifdef _WIN32` branches so the same source compiles on both Windows (Winsock2) and POSIX (Linux, etc.). It also handles a well-known Windows UDP pitfall — where a prior `sendto` triggering an ICMP Port Unreachable can cause a subsequent `recvfrom` on a bound, unconnected socket to fail with `WSAECONNRESET` — matching the C# server's `SIO_UDP_CONNRESET` suppression on Windows builds, while leaving it as a documented no-op on Linux builds, where this issue doesn't occur.
+
+### 11.5 Build and Testing
+
+Builds using only the standard library and platform socket headers, with no external package dependencies.
+
+```makefile
+CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -pthread
+```
+
+```
+make        # builds the custom_server binary
+make run    # builds and runs immediately
+```
+
+By default, `main.cpp` waits for Enter to stop the server, just like the C# original, but a test-only path was added: if the `CUSTOM_SERVER_RUN_SECONDS` environment variable is set, the server runs for a fixed duration and then shuts down automatically. This lets an automated test pipeline start up and validate the server without needing to hold open standard input.
+
+---
+
 ## Tech Stack
 - **Engine**: Unity
 - **Client Architecture**: Dual implementation (MonoBehaviour / DOTS-ECS) to compare client-side prediction and reconciliation across both architectures using an identical protocol
 - **Networking (Server)**: Pure C# UDP server (`System.Net.Sockets`, no Unity runtime dependency) — Server-Authoritative simulation + custom binary protocol
+- **Server Port**: C++17 server port (`std::mutex`, POSIX/Winsock cross-platform sockets) — fully identical wire protocol and simulation computation order to the C# server, validating language/runtime independence
 - **Networking Approach Comparison**: A comprehensive evaluation of feasibility, projected cost, and level of technical control when building a custom server, benchmarked against Unity Dedicated Server and Photon-based commercial solutions
 - **Load Testing**: Pure .NET console bot client (async/await, `PeriodicTimer`) — Large-scale concurrent connection simulation without any Unity client
 - **Genre**: Top-down Arcade Combat (2D spaceship shooter, real-time PvP)
