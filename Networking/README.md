@@ -1,6 +1,6 @@
 # Custom UNet Networking Layer with Steam P2P Support
 
-Unity의 레거시 네트워킹 프레임워크인 **UNet(HLAPI)** 을 확장하여, 데디케이티드 서버와 **Steam P2P** 두 가지 전송 방식을 단일한 게임 로직으로 지원하도록 설계한 코드입니다. 이전 프로젝트에서 발췌한 코드로, 게임 관련 정보와 프로젝트 고유 로직은 걷어내고 **네트워킹 아키텍처를 보여주는 핵심 부분만** 정리했습니다.
+Unity의 레거시 네트워킹 프레임워크인 **UNet(HLAPI)** 을 확장하여, 데디케이티드 서버와 **Steam P2P** 두 가지 전송 방식을 단일한 게임 로직으로 지원하도록 설계한 코드입니다. **Staioneer**([Steam on Staioneer](https://store.steampowered.com/app/544550/Stationeers/)) 프로젝트에서 발췌한 코드로, 게임 관련 정보와 프로젝트 고유 로직은 걷어내고 **네트워킹 아키텍처를 보여주는 핵심 부분만** 정리했습니다.
 
 ## 배경 및 문제 정의
 

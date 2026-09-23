@@ -1,6 +1,6 @@
 # Custom UNet Networking Layer with Steam P2P Support
 
-Code that extends Unity's legacy networking framework, **UNet (HLAPI)**, to support two transport methods — a dedicated server and **Steam P2P** — under a single unified game logic. This code is excerpted from a previous project; game-specific information and project-specific logic have been stripped out, leaving only **the core parts that demonstrate the networking architecture**.
+Code that extends Unity's legacy networking framework, **UNet (HLAPI)**, to support two transport methods — a dedicated server and **Steam P2P** — under a single unified game logic. This code is excerpted from **Staioneer**([Steam on Staioneer](https://store.steampowered.com/app/544550/Stationeers/)); game-specific information and project-specific logic have been stripped out, leaving only **the core parts that demonstrate the networking architecture**.
 
 ## Background and Problem Definition
 
