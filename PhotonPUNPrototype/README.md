@@ -1,6 +1,6 @@
 # MetarushPUN — Fall Guys-style Multiplayer Prototype
 
-Photon에서 제공하는 **PUN(Photon Unity Networking) Lobby 샘플**을 기반으로, **Fall Guys**를 벤치마킹하여 구현한 멀티플레이어 프로토타입입니다. 리전 선택 → 룸 생성/참가 → 게임 시작으로 이어지는 Photon PUN의 표준 매치메이킹 흐름 위에, 더블 점프·체크포인트 리스폰 등 캐주얼 레이싱 장르에 필요한 게임플레이 로직을 얹어 검증했습니다.
+**MetarushPUN**([https://x.com/PlayMetarush](https://x.com/PlayMetarush)) 프로젝트는 Photon에서 제공하는 **PUN(Photon Unity Networking) Lobby 샘플**을 기반으로, **Fall Guys**를 벤치마킹하여 구현한 멀티플레이어 프로토타입입니다. 리전 선택 → 룸 생성/참가 → 게임 시작으로 이어지는 Photon PUN의 표준 매치메이킹 흐름 위에, 더블 점프·체크포인트 리스폰 등 캐주얼 레이싱 장르에 필요한 게임플레이 로직을 얹어 검증했습니다.
 
 ---
 
