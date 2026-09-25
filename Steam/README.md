@@ -26,14 +26,14 @@ Steamworks API는 대부분 즉시 결과를 반환하지 않고, `SteamAPICall_
 
 이 문제를 해결하기 위해 모든 비동기 Steam 작업을 **`SteamAsyncTask`라는 공통 추상 클래스로 캡슐화**하고, `SteamAsyncTaskManager`가 이를 **큐에 적재하여 한 번에 하나씩 직렬로 `Update()`에서 처리**하는 구조를 채택했습니다.
 
-```
-[호출부] → new SteamAsyncXXX(...) → QueueAsyncTask() → Queue<SteamAsyncTask>
-                                                              │
-                                     SteamAsyncTaskManager.Update() (매 프레임)
-                                                              │
-                              ActiveTask.Tick() → IsTaskDone / IsTimeOut 체크
-                                                              │
-                         FinalizeTask() → TriggerDelegates() → 다음 태스크로 교체
+```mermaid
+flowchart TD
+    A["호출부"] -->|"new SteamAsyncXXX(...)"| B["QueueAsyncTask()"]
+    B --> C[("Queue&lt;SteamAsyncTask&gt;")]
+    C --> D["SteamAsyncTaskManager.Update()<br/>(매 프레임)"]
+    D --> E["ActiveTask.Tick()<br/>IsTaskDone / IsTimeOut 체크"]
+    E --> F["FinalizeTask() → TriggerDelegates()"]
+    F -->|"다음 태스크로 교체"| C
 ```
 
 이 구조를 채택한 이유는 다음과 같습니다.

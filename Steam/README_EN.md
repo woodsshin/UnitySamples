@@ -26,14 +26,14 @@ Even though these three types have completely different ways of determining comp
 
 To solve this, every asynchronous Steam operation was **encapsulated in a common abstract class called `SteamAsyncTask`**, and `SteamAsyncTaskManager` was designed to **load these into a queue and process them one at a time, serially, inside `Update()`**.
 
-```
-[Caller] → new SteamAsyncXXX(...) → QueueAsyncTask() → Queue<SteamAsyncTask>
-                                                              │
-                                     SteamAsyncTaskManager.Update() (every frame)
-                                                              │
-                              ActiveTask.Tick() → checks IsTaskDone / IsTimeOut
-                                                              │
-                         FinalizeTask() → TriggerDelegates() → advance to the next task
+```mermaid
+flowchart TD
+    A["Caller"] -->|"new SteamAsyncXXX(...)"| B["QueueAsyncTask()"]
+    B --> C[("Queue&lt;SteamAsyncTask&gt;")]
+    C --> D["SteamAsyncTaskManager.Update()<br/>(every frame)"]
+    D --> E["ActiveTask.Tick()<br/>checks IsTaskDone / IsTimeOut"]
+    E --> F["FinalizeTask() → TriggerDelegates()"]
+    F -->|"advance to the next task"| C
 ```
 
 The reasons for adopting this structure are as follows.

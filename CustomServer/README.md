@@ -26,15 +26,18 @@ Unity의 Dedicated Server(Netcode for GameObjects, Unity Transport 등)에 의�
 
 Photon Fusion 2, Rocket League의 GGPO 이전 방식과 유사한 **"서버가 Source of Truth를 계산하고, 클라이언트는 예측 후 서버 값으로 보정"** 하는 구조입니다.
 
-```
-[클라이언트]                                    [서버, 60Hz]
-   |-- ClientInput(tick, throttle, turn, fire) -->|
-   |   (로컬에서 즉시 SimulateTankStep 실행,      |-- HandleClientInput
-   |    예측 결과를 화면에 먼저 반영)              |   (동일 로직으로 authoritative 시뮬레이션)
-   |                                              |
-   |<-- ServerState(tick, 전체 플레이어 스냅샷) --|-- BroadcastServerState
-   |   pending input 재생 → 오차 계산 →           |
-   |   스냅/보정/유지 3단 재조정                   |
+```mermaid
+sequenceDiagram
+    participant C as 클라이언트
+    participant S as 서버 (60Hz)
+
+    loop 매 틱
+        C->>S: ClientInput(tick, throttle, turn, fire)
+        Note over C: SimulateTankStep을 로컬에서 즉시 실행,<br/>예측 결과를 화면에 먼저 반영
+        Note over S: HandleClientInput —<br/>동일 로직으로 authoritative 시뮬레이션
+        S-->>C: BroadcastServerState:<br/>ServerState(tick, 전체 플레이어 스냅샷)
+        Note over C: pending input 재생 → 오차 계산 →<br/>스냅 / 보정 / 유지 3단 재조정
+    end
 ```
 
 ### 2.1 서버 틱 루프

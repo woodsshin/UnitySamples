@@ -16,56 +16,83 @@ In worlds with a large number of objects (hundreds to thousands of NetworkIdenti
 
 ## Architecture Overview
 
+### Folder Structure
+
 ```
-NetworkManagerOverride (NetworkManager)
-   ├─ Swaps the Connection class in StartHost() depending on whether P2P is used
-   │     ├─ SteamNetworkManager.IsUsingP2P == true  → uses SteamNetworkConnection
-   │     └─ false (dedicated server, etc.)          → uses CustomNetworkConnection
-   │
-   ├─ SetNetworkConnectionClass<T>() : the same Connection type must be set on
-   │     both NetworkServer / NetworkClient for state to remain symmetric
-   │
-CustomNetworkConnection (NetworkConnection)
-   ├─ SendBytes / SendWriter override
-   │     └─ While ReadyForQueueing == true, messages on the ReliableSequenced
-   │        channel are not sent immediately but loaded into MsgQueue(List<MessageQueue>)
-   ├─ TransportSend override
-   │     └─ In queuing mode, skips the actual send and returns as if it succeeded,
-   │        preventing the engine from internally triggering its own retry logic
-   ├─ FlushBuffer() (coroutine)
-   │     └─ At the end of every frame (EndOfFrame), checks the available
-   │        send capacity (buffer state) and dequeues and sends only that much
-   └─ MessageQueue (IDisposable)
-         └─ A value object representing a single queued message.
-            Immediately copies the original byte[] for storage (safe even if
-            the caller's buffer is reused)
+Assets/
+└── Scripts/
+    └── Networking/
+        ├── Core/
+        │   ├── NetworkManagerOverride.cs      # Swaps the Connection class in StartHost()
+        │   ├── CustomNetworkConnection.cs     # Message queuing + frame-level flush
+        │   └── MessageQueue.cs                # Value object for a queued message
+        │
+        ├── Steam/
+        │   ├── SteamNetworkConnection.cs      # Send/receive via Steamworks SendP2PPacket
+        │   ├── SteamNetworkClient.cs          # Forces ConnectState to Connected
+        │   ├── SteamNetworkManager.cs         # Polls the P2P packet queue every frame
+        │   ├── UNETServerController.cs        # Accepts P2P sessions, registers connections
+        │   └── NetworkManagerHudOverride.cs   # Parses steam.<steamid64> connect params
+        │
+        ├── Streaming/
+        │   ├── SpawnQueue.cs                  # Object spawning capped per frame
+        │   ├── ChunkStreamManager.cs          # Distance-based priority chunk streaming
+        │   ├── ChunkDataSource.cs             # Builds chunk payloads
+        │   ├── NetworkFlowGate.cs             # Checks remaining transport capacity
+        │   └── JoinLoadingScreen.cs           # Loading screen + fall-through-floor fix
+        │
+        └── DedicatedServer/
+            ├── DedicatedServerConfig.cs       # Command-line argument parsing
+            └── DedicatedServerAdmin.cs        # Password / kick / ban / remote commands
+```
 
-SteamNetworkConnection (CustomNetworkConnection)
-   ├─ ForceInitialize() : directly initializes a connection slot targeting
-   │     "localhost" without going through UNet's internal init flow
-   │     (UNet is unaware of the Steam session)
-   ├─ TransportSend override : performs the actual send via Steamworks'
-   │     SendP2PPacket, and immediately loopbacks to TransportReceive
-   │     when sending to itself
-   └─ CloseP2PSession() : waits until the remaining queue is fully drained,
-         then closes the session
+### Sequence Diagram
 
-SteamNetworkClient (NetworkClient)
-   └─ Connect() : forces ConnectState to Connected without going through the
-         NetworkTransport connection procedure, making UNet treat it as
-         "already connected"
+```mermaid
+sequenceDiagram
+    participant Client as Game Client
+    participant NM as NetworkManagerOverride
+    participant Conn as CustomNetworkConnection
+    participant Queue as MsgQueue
+    participant Transport as Transport<br/>(Socket / Steamworks P2P)
 
-SteamNetworkManager (MonoBehaviour)
-   └─ Update() : polls the Steamworks P2P packet queue every frame and injects
-         received bytes into the corresponding NetworkConnection.TransportReceive
-         (acts as a replacement for the UDP socket event loop)
+    Client->>NM: StartHost()
+    NM->>NM: Check SteamNetworkManager.IsUsingP2P
 
-UNETServerController
-   ├─ OnP2PSessionRequested() : receives the Steam P2P connection request
-   │     callback and decides whether to accept it
-   └─ CreateP2PConnectionWithPeer() : after acceptance, creates a
-         SteamNetworkConnection and registers it into UNet's connection list
-         via NetworkServer.AddExternalConnection()
+    alt P2P mode
+        NM->>NM: SetNetworkConnectionClass(SteamNetworkConnection)
+        Note over NM: Same type must be set on both NetworkServer / NetworkClient
+    else Dedicated server
+        NM->>NM: SetNetworkConnectionClass(CustomNetworkConnection)
+    end
+
+    Note over Client,Transport: Sending a message (SendBytes)
+
+    Client->>Conn: SendBytes(bytes, channelId)
+    alt ReadyForQueueing && ReliableSequenced channel
+        Conn->>Queue: Add(new MessageQueue(bytes))
+        Conn-->>Client: return true (queued, not sent yet)
+    else Other channels
+        Conn->>Transport: base.SendBytes() — sent immediately
+        Transport-->>Conn: send result
+    end
+
+    Note over Conn,Transport: FlushBuffer coroutine — every EndOfFrame
+
+    loop MsgQueue.Count > 0
+        Conn->>NM: IsAvailableMessageQueue()?
+        alt Buffer has capacity
+            Conn->>Queue: Dequeue()
+            Conn->>Transport: TransportSend(bytes)
+            alt Steam P2P
+                Transport->>Transport: SteamNetworking.SendP2PPacket()
+            else Regular socket
+                Transport->>Transport: NetworkTransport send
+            end
+        else No capacity
+            Conn->>Conn: wait until next EndOfFrame
+        end
+    end
 ```
 
 ## Key Excerpted Code

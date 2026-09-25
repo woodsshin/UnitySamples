@@ -26,16 +26,18 @@ The server is implemented using `System.Net.Sockets.UdpClient` and has no refere
 
 This architecture follows a **"server computes the source of truth, client predicts and then corrects against server values"** model, conceptually similar to Photon Fusion 2 and pre-GGPO approaches used in games like Rocket League.
 
-```
-[Client]                                         [Server, 60Hz]
-   |-- ClientInput(tick, throttle, turn, fire) -->|
-   |   (Immediately runs SimulateTankStep         |-- HandleClientInput
-   |    locally, rendering the predicted           |   (Runs authoritative simulation
-   |    result first)                              |    using identical logic)
-   |                                               |
-   |<-- ServerState(tick, full player snapshot) --|-- BroadcastServerState
-   |   Replay pending input → compute error →     |
-   |   3-tier reconciliation: snap/correct/hold   |
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server (60Hz)
+
+    loop Every tick
+        C->>S: ClientInput(tick, throttle, turn, fire)
+        Note over C: Immediately runs SimulateTankStep locally,<br/>renders the predicted result first
+        Note over S: HandleClientInput —<br/>runs authoritative simulation using identical logic
+        S-->>C: BroadcastServerState:<br/>ServerState(tick, full player snapshot)
+        Note over C: Replay pending input → compute error →<br/>3-tier reconciliation: snap / correct / hold
+    end
 ```
 
 ### 2.1 Server Tick Loop

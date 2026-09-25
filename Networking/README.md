@@ -16,49 +16,83 @@ UNet은 `NetworkConnection`을 통해 `SendBytes` / `SendWriter`를 호출하면
 
 ## 아키텍처 개요
 
+### 폴더 구조
+
 ```
-NetworkManagerOverride (NetworkManager)
-   ├─ StartHost()에서 P2P 여부에 따라 Connection 클래스를 교체
-   │     ├─ SteamNetworkManager.IsUsingP2P == true  → SteamNetworkConnection 사용
-   │     └─ false (데디케이티드 서버 등)              → CustomNetworkConnection 사용
-   │
-   ├─ SetNetworkConnectionClass<T>() : NetworkServer / NetworkClient 양쪽에
-   │     동일한 Connection 타입을 지정해야 상태가 대칭적으로 유지됨
-   │
-CustomNetworkConnection (NetworkConnection)
-   ├─ SendBytes / SendWriter 오버라이드
-   │     └─ ReadyForQueueing == true인 동안, ReliableSequenced 채널 메시지를
-   │        즉시 전송하지 않고 MsgQueue(List<MessageQueue>)에 적재
-   ├─ TransportSend 오버라이드
-   │     └─ 큐잉 모드에서는 실제 전송을 건너뛰고 성공한 것처럼 반환해,
-   │        엔진이 내부적으로 재전송 로직을 타지 않도록 방지
-   ├─ FlushBuffer() (코루틴)
-   │     └─ 매 프레임 종료 시점(EndOfFrame)마다 전송 가능한 여유(버퍼 상태)를
-   │        확인하고, 확보된 만큼만 큐에서 꺼내 실제로 전송
-   └─ MessageQueue (IDisposable)
-         └─ 큐에 적재된 메시지 한 건을 표현하는 값 객체.
-            원본 byte[]를 즉시 복사해 보관(호출부의 버퍼 재사용에도 안전)
+Assets/
+└── Scripts/
+    └── Networking/
+        ├── Core/
+        │   ├── NetworkManagerOverride.cs      # StartHost 시점에 Connection 타입 스왑
+        │   ├── CustomNetworkConnection.cs     # 메시지 큐잉 + 프레임 단위 플러시
+        │   └── MessageQueue.cs                # 큐에 적재되는 메시지 값 객체
+        │
+        ├── Steam/
+        │   ├── SteamNetworkConnection.cs      # Steamworks SendP2PPacket 기반 송수신
+        │   ├── SteamNetworkClient.cs          # ConnectState 강제 전환
+        │   ├── SteamNetworkManager.cs         # 매 프레임 P2P 패킷 큐 폴링
+        │   ├── UNETServerController.cs        # P2P 세션 요청 수락 · 커넥션 등록
+        │   └── NetworkManagerHudOverride.cs   # steam.<steamid64> 접속 파라미터 변환
+        │
+        ├── Streaming/
+        │   ├── SpawnQueue.cs                  # 프레임당 상한을 둔 오브젝트 스폰
+        │   ├── ChunkStreamManager.cs          # 거리 기반 우선순위 청크 스트리밍
+        │   ├── ChunkDataSource.cs             # 청크 페이로드 빌드
+        │   ├── NetworkFlowGate.cs             # 전송 큐 여유 확인
+        │   └── JoinLoadingScreen.cs           # 로딩 화면 + 낙하 버그 방지
+        │
+        └── DedicatedServer/
+            ├── DedicatedServerConfig.cs       # 커맨드라인 인자 파싱
+            └── DedicatedServerAdmin.cs        # 비밀번호 · 킥 · 밴 · 원격 명령
+```
 
-SteamNetworkConnection (CustomNetworkConnection)
-   ├─ ForceInitialize() : UNet 내부 초기화 흐름을 거치지 않고
-   │     "localhost" 대상 커넥션 슬롯을 직접 초기화 (Steam 세션은 UNet이 인지하지 못함)
-   ├─ TransportSend 오버라이드 : Steamworks SendP2PPacket으로 실제 송신을 수행하며,
-   │     자기 자신에게 보내는 경우는 TransportReceive로 즉시 루프백 처리
-   └─ CloseP2PSession() : 잔여 큐가 모두 비워질 때까지 대기한 뒤 세션 종료
+### 시퀀스 다이어그램
 
-SteamNetworkClient (NetworkClient)
-   └─ Connect() : NetworkTransport 연결 절차 없이 ConnectState를 강제로
-         Connected로 세팅해 UNet이 "이미 연결됨"으로 인식하도록 유도
+```mermaid
+sequenceDiagram
+    participant Client as 게임 클라이언트
+    participant NM as NetworkManagerOverride
+    participant Conn as CustomNetworkConnection
+    participant Queue as MsgQueue
+    participant Transport as Transport<br/>(Socket / Steamworks P2P)
 
-SteamNetworkManager (MonoBehaviour)
-   └─ Update() : 매 프레임 Steamworks P2P 패킷 큐를 폴링하여,
-         수신한 바이트를 해당 NetworkConnection.TransportReceive로 주입
-         (UDP 소켓 이벤트 루프를 대체하는 역할)
+    Client->>NM: StartHost()
+    NM->>NM: SteamNetworkManager.IsUsingP2P 확인
 
-UNETServerController
-   ├─ OnP2PSessionRequested() : Steam P2P 접속 요청 콜백을 받아 수락 여부 결정
-   └─ CreateP2PConnectionWithPeer() : 수락 후 SteamNetworkConnection을 생성해
-         NetworkServer.AddExternalConnection()으로 UNet 커넥션 목록에 편입
+    alt P2P 모드
+        NM->>NM: SetNetworkConnectionClass(SteamNetworkConnection) 지정
+        Note over NM: NetworkServer / NetworkClient 양쪽에 동일 타입 지정
+    else 데디케이티드 서버
+        NM->>NM: SetNetworkConnectionClass(CustomNetworkConnection) 지정
+    end
+
+    Note over Client,Transport: 메시지 송신 (SendBytes)
+
+    Client->>Conn: SendBytes(bytes, channelId)
+    alt ReadyForQueueing && ReliableSequenced 채널
+        Conn->>Queue: Add(new MessageQueue(bytes))
+        Conn-->>Client: return true (큐잉됨, 실전송 아님)
+    else 그 외 채널
+        Conn->>Transport: base.SendBytes() 즉시 전송
+        Transport-->>Conn: 전송 결과
+    end
+
+    Note over Conn,Transport: FlushBuffer 코루틴 — 매 프레임 EndOfFrame
+
+    loop MsgQueue.Count > 0
+        Conn->>NM: IsAvailableMessageQueue()?
+        alt 버퍼 여유 있음
+            Conn->>Queue: Dequeue()
+            Conn->>Transport: TransportSend(bytes)
+            alt Steam P2P
+                Transport->>Transport: SteamNetworking.SendP2PPacket()
+            else 일반 소켓
+                Transport->>Transport: NetworkTransport 전송
+            end
+        else 여유 없음
+            Conn->>Conn: 다음 EndOfFrame까지 대기
+        end
+    end
 ```
 
 ## 핵심 발췌 코드
