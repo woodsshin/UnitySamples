@@ -4,7 +4,7 @@ A module that integrates the Steamworks SDK (Steamworks.NET) into a Unity (UNET)
 
 ---
 
-## 1. Why an Asynchronous Task Framework Was Needed
+## 1. Asynchronous Task Framework
 
 ### 1.1 The Problem
 
