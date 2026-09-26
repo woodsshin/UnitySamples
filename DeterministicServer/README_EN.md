@@ -44,6 +44,35 @@ public class PlayerConnection
 
 The server is still implemented on top of `System.Net.Sockets.UdpClient` and has zero references to the Unity API, making it deployable anywhere — Docker, bare-metal Linux, or otherwise.
 
+### 1.1 Sequence Diagram — The Input Relay Flow
+
+Below is the new structure's message flow. It mirrors the previous loop — "send input → immediately simulate/predict locally → server computes authoritative physics → broadcast full snapshot → 3-stage reconciliation" — step for step, using the same `loop [every tick]` shape, so each stage's replacement is easy to spot.
+
+```mermaid
+sequenceDiagram
+    participant A as Client A (DOTS)
+    participant B as Client B (MonoBehaviour)
+    participant S as Server (Input Relay, no physics)
+
+    loop [every tick]
+        A->>S: ClientInput(PlayerId=A, targetTick, throttle, turn, fire)
+        B->>S: ClientInput(PlayerId=B, targetTick, throttle, turn, fire)
+        Note over A,B: No local execution yet — targetTick is sent InputDelayTicks<br/>ahead of the next confirmed tick, absorbing latency alone (no prediction, no rollback)
+        Note over S: No physics — only collects the inputs of everyone<br/>alive on that tick (a missing input falls back to the last confirmed one)
+        S-->>A: TickCommit(tick, DeltaTimeSeconds, Joined/Left, Inputs[])
+        S-->>B: TickCommit(tick, DeltaTimeSeconds, Joined/Left, Inputs[]) — identical to A's packet
+        Note over A: Replays ProcessOneTick — Join→Leave→Input→Missile→Respawn<br/>in fixed order → the result IS TankPhysicsState (not a prediction)
+        Note over B: Replays the identical logic independently → a bit-identical result<br/>there is no reconciliation stage left to run
+    end
+```
+
+Lining each stage up against its counterpart in the previous structure:
+
+- **Right after sending input** — Previously, `SimulateTankStep` ran immediately on the client and drew a predicted result first; now there is no prediction to draw. The client sends `targetTick` set `InputDelayTicks` ahead of time, and the actual simulation waits until that tick's `TickCommit` comes back.
+- **Server-side processing** — Previously, the server ran an authoritative simulation with the identical logic via `HandleClientInput`; now the server only collects and sorts inputs and holds no physics fields at all.
+- **The server's reply** — Previously, the server broadcast the "full player snapshot" it had computed as the ground truth; now it simply relays the uncomputed input list `Inputs[]` identically to every client.
+- **After the reply arrives** — Previously, a "3-stage snap/correct/maintain reconciliation" absorbed the prediction error; now there is no reconciliation code left to run in its place. Two entirely separate codebases — Client A (DOTS) and Client B (MonoBehaviour) — arriving at the exact same result is itself the demonstration of this architecture's determinism.
+
 ---
 
 ## 2. Protocol Redesign — A Single TickCommit Channel

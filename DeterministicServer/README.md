@@ -43,6 +43,35 @@ public class PlayerConnection
 
 서버는 여전히 `System.Net.Sockets.UdpClient`로 구현되며 Unity API를 전혀 참조하지 않아, Docker/리눅스 베어메탈 등 어디에나 배포 가능합니다.
 
+### 1.1 시퀀스 다이어그램 — Input Relay 구조
+
+아래는 새 구조의 메시지 흐름입니다. 이전 방식의 "입력 전송 → 로컬 즉시 실행/예측 → 서버 authoritative 계산 → 전체 스냅샷 브로드캐스트 → 3단 재조정"이라는 루프와 같은 자리에서 각 단계가 무엇으로 바뀌었는지 대조할 수 있도록, 동일한 `loop [매 틱]` 틀로 구성했습니다.
+
+```mermaid
+sequenceDiagram
+    participant A as 클라이언트 A (DOTS)
+    participant B as 클라이언트 B (MonoBehaviour)
+    participant S as 서버 (Input Relay, 물리 없음)
+
+    loop [매 틱]
+        A->>S: ClientInput(PlayerId=A, targetTick, throttle, turn, fire)
+        B->>S: ClientInput(PlayerId=B, targetTick, throttle, turn, fire)
+        Note over A,B: 로컬 즉시 실행 없음 — targetTick = 다음 확정 틱 + InputDelayTicks로<br/>미리 전송해 지연만 흡수 (예측 없음, 롤백 없음)
+        Note over S: 물리 연산 없음 — 그 틱 생존자 전원의 입력만 수집<br/>(미도착 입력은 마지막 확정 입력으로 fallback)
+        S-->>A: TickCommit(tick, DeltaTimeSeconds, Joined/Left, Inputs[])
+        S-->>B: TickCommit(tick, DeltaTimeSeconds, Joined/Left, Inputs[]) — A와 완전히 동일한 패킷
+        Note over A: ProcessOneTick 재생 — Join→Leave→Input→Missile→Respawn<br/>순서 고정 → 결과 = TankPhysicsState (예측 아님)
+        Note over B: 동일 로직을 독립적으로 재생 → 비트 단위로 동일한 결과<br/>재조정(Reconciliation) 단계 자체가 존재하지 않음
+    end
+```
+
+각 단계를 이전 구조의 해당 단계와 나란히 비교하면:
+
+- **입력 직후** — 이전에는 `SimulateTankStep`을 로컬에서 즉시 실행해 예측 결과를 먼저 그렸지만, 지금은 그릴 예측 자체가 없습니다. `targetTick`을 `InputDelayTicks`만큼 미리 잡아 보내 놓고, 실제 시뮬레이션은 그 틱의 `TickCommit`이 돌아올 때까지 기다립니다.
+- **서버 처리** — 이전에는 서버가 `HandleClientInput`으로 동일 로직의 authoritative 시뮬레이션을 수행했지만, 지금 서버는 입력을 모아 정렬만 할 뿐 물리 필드를 하나도 갖지 않습니다.
+- **서버 응답** — 이전에는 서버가 계산한 "전체 플레이어 스냅샷"을 정답으로 브로드캐스트했지만, 지금은 계산되지 않은 입력 목록 `Inputs[]`를 모든 클라이언트에게 동일하게 전달할 뿐입니다.
+- **응답 이후** — 이전에는 "스냅 / 보정 / 유지 3단 재조정"으로 예측 오차를 흡수했지만, 지금은 그 자리에 재조정 코드 자체가 없습니다. 완전히 다른 코드베이스인 클라이언트 A(DOTS)와 클라이언트 B(MonoBehaviour)가 동일한 결과에 도달한다는 것이 곧 이 구조의 결정론을 보여줍니다.
+
 ---
 
 ## 2. 프로토콜 재설계 — TickCommit 단일 채널
