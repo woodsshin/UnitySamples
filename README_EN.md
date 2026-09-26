@@ -1,4 +1,5 @@
 # Unity Portfolio (Steam & Photon)
+> <a href="https://drive.google.com/file/d/16IJnSgvC1gbpW9DPIYUcXhM4bqG7w57o/view?usp=sharing" target="_blank"><b>📄 Download / View Full Portfolio (PDF)</b></a>
 
 This repository organizes the networking-related work done throughout Unity-based multiplayer game development, grouped by folder. It spans work across different layers and purposes — from solving flow control issues in legacy engine networking (UNet), to Steamworks SDK integration, to a fully playable prototype built with Photon PUN.
 

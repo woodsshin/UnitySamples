@@ -1,4 +1,5 @@
 # Unity Portfolio (Steam & Photon)
+> <a href="https://drive.google.com/file/d/1GoUnWiCkAd1RMs37GINjFdI8AssyieZi/view?usp=drive_link" target="_blank"><b>📄 다운로드 / 전체 포트폴리오 보기 (PDF)</b></a>
 
 Unity 기반 멀티플레이어 게임 개발 과정에서 다룬 네트워킹 관련 작업들을 폴더별로 정리했습니다. 레거시 엔진 네트워킹(UNet)의 유량 제어 문제 해결, Steamworks SDK 통합, 그리고 Photon PUN을 활용한 실제 플레이 가능한 프로토타입까지 — 서로 다른 계층과 목적의 작업을 포함합니다.
 
