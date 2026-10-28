@@ -47,6 +47,12 @@ Unity Dedicated Server 패키지나 상용 넷코드에 의존하지 않고, **�
 - 물리를 계산하지 않는 순수 .NET 콘솔 부하 테스트 봇으로 대규모 동시접속 트래픽 시뮬레이션
 - 자세한 내용은 [DeterministicServer/README.md](./DeterministicServer/README.md) 참고
 
-## 읽는 순서 제안
+### 📁 [Simple UPNP](./SimpleUPnP/README_EN.md)
 
-기술적 난이도와 문제 해결 과정을 보고 싶다면 **Networking → Steam → CustomServer → DeterministicServer** 순으로, 실제 플레이 가능한 결과물을 먼저 보고 싶다면 **PhotonPUNPrototype**부터 확인하는 것을 권장합니다.
+Simple UPNP는 UPnP 인터넷 게이트웨이 장치(라우터)에서 UDP/TCP 포트 매핑을 손쉽게 추가, 삭제, 조회할 수 있는 솔루션입니다.
+
+- 수동 포트 포워딩 없이도 플레이어가 직접 멀티플레이어 게임을 호스팅할 수 있도록 지원
+- SSDP를 통해 라우터를 탐색하고 제조사, 상태 및 링크 정보를 확인
+- 표준 UPnP IGD SOAP 서비스(WANIPConnection / WANPPPConnection)를 통해 포트 매핑을 관리
+- 순수 C#으로 제작되어 네이티브 플러그인, 외부 서비스, 별도의 계정 설정이 불필요
+- 자세한 내용은 [SimpleUPnP/README.md](./SimpleUPnP/README.md)를 참고

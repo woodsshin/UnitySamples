@@ -47,6 +47,12 @@ A follow-up project that completely redesigns `CustomServer`'s server-authoritat
 - Simulates large-scale concurrent traffic with a pure .NET console load-testing bot that runs no physics
 - See [DeterministicServer/README_EN.md](./DeterministicServer/README_EN.md) for details
 
-## Suggested Reading Order
+### 📁 [Simple UPNP](./SimpleUPnP/README_EN.md)
 
-If you'd like to see the technical difficulty and problem-solving process, we recommend reading **Networking → Steam → CustomServer → DeterministicServer** in that order. If you'd like to see the actual playable result first, start with **PhotonPUNPrototype**.
+Simple UPNP makes it easy to add, delete, and list UDP/TCP port mappings on UPnP Internet Gateway Devices (routers).
+
+- Enabling players to host multiplayer games without manual port forwarding
+- Discovers routers using SSDP, reads manufacturer, status, and link information
+- Manages port mappings through standard UPnP IGD SOAP services (WANIPConnection / WANPPPConnection)
+- Built entirely in pure C#, it features no native plugins, no external services, and requires no account setups
+- See [SimpleUPnP/README_EN.md](./SimpleUPnP/README_EN.md) for details
