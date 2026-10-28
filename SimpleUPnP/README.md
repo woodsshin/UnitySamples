@@ -12,7 +12,7 @@ Simple UPNP는 SSDP를 통해 인터넷 게이트웨이 장치(라우터)를 검
 * 데모 샘플, 단위 테스트, 전체 소스 코드가 포함되어 있습니다.
 
 <p align="center">
-  <img src="Image/UPnPTester.png" alt="UPnP Tester" width="682"><br>
+  <img src="Image/UPnPTester.PNG" alt="UPnP Tester" width="682"><br>
   <sub>UPnP 테스터</sub>
 </p>
 

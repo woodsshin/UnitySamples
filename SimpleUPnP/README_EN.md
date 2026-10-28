@@ -18,7 +18,7 @@ no accounts. Nothing leaves the local network except the port mappings that you 
 * Demo sample, unit tests, full source code.
 
 <p align="center">
-  <img src="Image/UPnPTester.png" alt="UPnP Tester" width="682"><br>
+  <img src="Image/UPnPTester.PNG" alt="UPnP Tester" width="682"><br>
   <sub>UPnP Tester</sub>
 </p>
 

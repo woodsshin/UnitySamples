@@ -47,7 +47,7 @@ Unity Dedicated Server 패키지나 상용 넷코드에 의존하지 않고, **�
 - 물리를 계산하지 않는 순수 .NET 콘솔 부하 테스트 봇으로 대규모 동시접속 트래픽 시뮬레이션
 - 자세한 내용은 [DeterministicServer/README.md](./DeterministicServer/README.md) 참고
 
-### 📁 [Simple UPNP](./SimpleUPnP/README_EN.md)
+### 📁 [Simple UPNP](./SimpleUPnP/README.md)
 
 Simple UPNP는 UPnP 인터넷 게이트웨이 장치(라우터)에서 UDP/TCP 포트 매핑을 손쉽게 추가, 삭제, 조회할 수 있는 솔루션입니다.
 
