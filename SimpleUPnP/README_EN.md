@@ -22,7 +22,7 @@ no accounts. Nothing leaves the local network except the port mappings that you 
   <sub>UPnP Tester</sub>
 </p>
 
-Inspired by the *SimpleUPNP* plugin for Unreal Engine ([github.com/woodsshin/UPNPSample](https://github.com/woodsshin/UPNPSample)).
+This is the Unity version of the SimpleUPNP plugin for Unreal Engine([github.com/woodsshin/UPNPSample](https://github.com/woodsshin/UPNPSample)).
 
 ## Requirements
 
@@ -88,7 +88,3 @@ The port is closed again when the game quits (switch this off with *Close Mappin
 
 See [Documentation~/SimpleUPNP.md](Documentation~/SimpleUPNP.md) for the complete manual: Inspector reference,
 API reference, error codes, platform notes, security notes and troubleshooting.
-
-## Support
-
-Questions, bug reports and feature requests: please use the contact details on the Asset Store page of this package.

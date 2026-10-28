@@ -16,7 +16,7 @@ Simple UPNP는 SSDP를 통해 인터넷 게이트웨이 장치(라우터)를 검
   <sub>UPnP 테스터</sub>
 </p>
 
-언리얼 엔진용 *SimpleUPNP* 플러그인([github.com/woodsshin/UPNPSample](https://github.com/woodsshin/UPNPSample))에서 영감을 받아 제작되었습니다.
+언리얼 엔진용 *SimpleUPNP* 플러그인([github.com/woodsshin/UPNPSample](https://github.com/woodsshin/UPNPSample))의 유니티 버전입니다.
 
 ## 요구 사항
 
@@ -80,7 +80,3 @@ public class HostGame : MonoBehaviour
 ## 문서
 
 인스펙터 레퍼런스, API 레퍼런스, 에러 코드, 플랫폼 참고 사항, 보안 관련 사항 및 문제 해결 방법이 포함된 전체 매뉴얼은 [Documentation~/SimpleUPNP.md](Documentation~/SimpleUPNP.md)를 참조하세요.
-
-## 지원
-
-문의 사항, 버그 리포트 및 기능 요청은 본 패키지의 에셋 스토어 페이지에 명시된 연락처를 이용해 주세요.
