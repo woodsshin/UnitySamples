@@ -1,0 +1,19 @@
+{
+  "name": "WoodsShin.SimpleUPNP.Editor",
+  "rootNamespace": "WoodsShin.SimpleUPNP.Editor",
+  "references": [
+    "WoodsShin.SimpleUPNP.Core",
+    "WoodsShin.SimpleUPNP.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
