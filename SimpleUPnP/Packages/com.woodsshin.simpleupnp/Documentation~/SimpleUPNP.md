@@ -3,7 +3,7 @@
 Version 1.0.0 - for Unity 2022.3 and newer
 
 * [1. What it does](#1-what-it-does)
-* [2. Installation](#2-installation)
+* [2. Installation](#2-installation) (with [Samples](#21-samples))
 * [3. Getting started](#3-getting-started)
 * [4. UPNP Manager component](#4-upnp-manager-component)
 * [5. Gateway Tester window](#5-gateway-tester-window)
@@ -52,8 +52,48 @@ The package contains the namespace `WoodsShin.SimpleUPNP` and three assemblies t
 If your project uses assembly definitions, add `WoodsShin.SimpleUPNP.Runtime` (or only `WoodsShin.SimpleUPNP.Core`)
 to the references of your assembly definition.
 
-**Sample:** in the Package Manager select *Simple UPNP*, open **Samples** and import **Demo (IMGUI)**.
-Add the `UpnpDemo` component to an empty GameObject and press Play.
+### 2.1 Samples
+
+In the Package Manager select *Simple UPNP*, open **Samples** and press **Import** next to a sample. Unity copies it to
+`Assets/Samples/Simple UPNP/<version>/`.
+
+**Demo (IMGUI)** - one script. Add the `UpnpDemo` component to an empty GameObject and press Play.
+
+**Settings UI (uGUI)** - a ready-made scene with a **UPNP Settings** window, like the one of the Unreal plugin:
+
+1. Import the sample, open `UpnpSettings.unity` from the imported folder and press Play.
+2. The window searches for your router when the scene starts and shows what it finds:
+
+   | Tab | Shows |
+   | --- | --- |
+   | **Manufacturer** | Manufacturer, friendly name and URL, model name, description, number, serial number and URL, UPnP version. |
+   | **Device Status** | Public and local IP address, last connection error, status, uptime, the list of routers that were found (**Device Location** with its own **Refresh** button that searches again), connection type and link properties (access type, link status, speed). |
+   | **Port Mapping** | Internal and external port, protocol and **Add Port**, and the table of all mappings of the router with a **Remove** button on every line. |
+
+   The **Refresh** button at the bottom reads the selected router again, **Close** hides the window (a small button
+   brings it back). The line at the bottom tells what is going on and what went wrong. It warns when the router
+   is behind another router (double NAT), because then ports opened on it cannot be reached from the internet.
+3. Ports that you add in the window are closed again when you stop the game (*Close Mappings On Quit* of the
+   UPNP Manager in the scene).
+
+What is in the scene: the `UPNP Manager` (the component of this package), and a `Canvas` with the `UPNP Settings Panel`
+object. The panel script (`UpnpSettingsPanel`) only calls `UpnpManager`, so it is also a small example of how to
+use the API. In the Inspector of the panel you can change *Search On Start*, *Start Tab*, *Lease Seconds* (0 = permanent
+mapping), the colors and the objects it uses.
+
+* **Your own scene:** copy the `UPNP Settings Panel` object (and a `UPNP Manager`) into a Canvas of your scene. Call
+  `UpnpSettingsPanel.Open()`, `Close()` or `Toggle()` from your own menu button.
+* **Other texts or lines:** every information text has an `UpnpInfoField` component. Delete the object to remove a line, or
+  duplicate it, change its *Key* and write a label next to it to add one.
+* **Requires** the Unity UI package (`com.unity.ugui`). It is part of the default project templates, and built in since
+  Unity 6. Without it the sample is not compiled, and its scene shows *Missing Script*.
+* **Input:** buttons only react when the scene has an Event System. The panel creates one when there is none: with the
+  old *Input Manager*, or with the *Input System* package when it is the active input handling. Builds with
+  IL2CPP and strict code stripping may remove the Input System module that the panel looks up by name. If the
+  buttons do not react in such a build, add an Event System with **GameObject > UI > Event System** to the scene.
+* The sample texts that you see in the editor ("Example Networks Inc.", "EG-1000", ...) are placeholders. At runtime they
+  show **N/A** until a router has been read.
+* The scene uses a Canvas Scaler (*Scale With Screen Size*, 1280 x 720, match height). All lines use Unity's built-in font.
 
 ## 3. Getting started
 

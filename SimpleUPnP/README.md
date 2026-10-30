@@ -27,14 +27,14 @@ Simple UPNP는 SSDP를 통해 인터넷 게이트웨이 장치(라우터)를 검
 \* iOS의 경우 Apple의 *Multicast Networking* 권한이 필요합니다. 자세한 내용은 [플랫폼 참고 사항](Assets/com.woodsshin.simpleupnp/Documentation~/SimpleUPNP.md#platform-notes)을 참조하세요.
 WebGL은 소켓을 열 수 없으므로 지원되지 않습니다.
 
-## 빠른 시작 (코드 없이)
+## 노코드 시작 가이드
 
 1. **GameObject > Create Empty** 생성 후, **Add Component > Simple UPNP > UPNP Manager**를 추가합니다.
 2. *Startup Mappings* 목록에서 게임의 프로토콜과 포트(예: **UDP 7777**)를 설정합니다.
 3. **Discover On Start** 및 **Open Startup Mappings On Start** 체크박스를 활성화합니다.
 4. Play 버튼을 누릅니다. 콘솔에 `[Simple UPNP] Added UDP port mapping 7777 -> 192.168.x.x:7777 on <your router>` 메시지가 출력됩니다. 게임을 정지하면 매핑이 다시 제거됩니다.
 
-## 빠른 시작 (코드로)
+## 스크립트 시작 가이드
 
 ```csharp
 using UnityEngine;
@@ -64,7 +64,15 @@ public class HostGame : MonoBehaviour
 ```
 
 `await` 이후 처리는 유니티 메인 스레드에서 복귀하므로, 실행 직후 유니티 객체들을 바로 다룰 수 있습니다.
-게임이 종료될 때 포트는 자동으로 다시 닫힙니다 (*Close Mappings On Quit* 옵션으로 이 동작을 끌 수 있습니다).
+게임을 종료할 때 포트는 자동으로 다시 닫힙니다 (*Close Mappings On Quit* 옵션으로 이 동작을 끌 수 있습니다).
+
+## 데모 샘플 미리보기
+
+패키지에 포함된 데모 샘플을 통해 포트 매핑, 장치 상태 조회, 제조사 정보 확인 기능을 UI로 테스트 할 수 있습니다.
+
+| 포트 매핑 (Port Mapping) | 장치 상태 (Device Status) | 제조사 정보 (Manufacturer) |
+| :---: | :---: | :---: |
+| <img src="Image/Sample_PortMapping.PNG" width="220" alt="Port Mapping Demo"> | <img src="Image/Sample_DeviceStatus.PNG" width="220" alt="Device Status Demo"> | <img src="Image/Sample_Manufacturer.PNG" width="220" alt="Manufacturer Demo"> |
 
 ## 패키지 구성 요소
 
@@ -74,9 +82,9 @@ public class HostGame : MonoBehaviour
 | `Runtime/Unity` | `UpnpManager` 컴포넌트. 어셈블리: `WoodsShin.SimpleUPNP.Runtime`. |
 | `Editor` | 게이트웨이 테스터 창. 어셈블리: `WoodsShin.SimpleUPNP.Editor`. |
 | `Tests/Editor` | 로컬 머신의 가상 라우터를 대상으로 실행되는 단위 테스트. 어셈블리: `WoodsShin.SimpleUPNP.Tests`. |
-| `Samples/Demo` | IMGUI 데모. **Package Manager > Simple UPNP > Samples**에서 임포트할 수 있습니다. |
-| `Documentation~` | 매뉴얼 문서: [SimpleUPNP.md](Documentation~/SimpleUPNP.md). |
+| `Samples~/Demo` | IMGUI 데모. **Package Manager > Simple UPNP > Samples**에서 임포트할 수 있습니다. |
+| `Documentation~` | 매뉴얼 문서: [SimpleUPNP.md](Packages/com.woodsshin.simpleupnp/Documentation~/SimpleUPNP.md). |
 
 ## 문서
 
-인스펙터 레퍼런스, API 레퍼런스, 에러 코드, 플랫폼 참고 사항, 보안 관련 사항 및 문제 해결 방법이 포함된 전체 매뉴얼은 [Documentation~/SimpleUPNP.md](Documentation~/SimpleUPNP.md)를 참조하세요.
+인스펙터 레퍼런스, API 레퍼런스, 에러 코드, 플랫폼 참고 사항, 보안 관련 사항 및 문제 해결 방법이 포함된 전체 매뉴얼은 [Documentation~/SimpleUPNP.md](Packages/com.woodsshin.simpleupnp/Documentation~/SimpleUPNP.md)를 참조하세요.

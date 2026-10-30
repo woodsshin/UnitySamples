@@ -21,7 +21,12 @@
     {
       "displayName": "Demo (IMGUI)",
       "description": "A single-script demo that shows gateway information, connection status and the port mapping table, and lets you add or remove mappings. Works in every render pipeline.",
-      "path": "Samples/Demo"
+      "path": "Samples~/Demo"
+    },
+    {
+      "displayName": "Settings UI (uGUI)",
+      "description": "A scene with a UPNP Settings window built with Unity UI: Manufacturer, Device Status and Port Mapping tabs, like the window of the Unreal plugin. Open UpnpSettings.unity and press Play. Needs the Unity UI package (com.unity.ugui).",
+      "path": "Samples~/SettingsUI"
     }
   ]
 }

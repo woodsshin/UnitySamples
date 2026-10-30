@@ -1,0 +1,26 @@
+{
+  "name": "WoodsShin.SimpleUPNP.Samples.SettingsUI",
+  "rootNamespace": "WoodsShin.SimpleUPNP.Samples",
+  "references": [
+    "WoodsShin.SimpleUPNP.Core",
+    "WoodsShin.SimpleUPNP.Runtime",
+    "UnityEngine.UI"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "SIMPLEUPNP_UGUI"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.unity.ugui",
+      "expression": "1.0.0",
+      "define": "SIMPLEUPNP_UGUI"
+    }
+  ],
+  "noEngineReferences": false
+}

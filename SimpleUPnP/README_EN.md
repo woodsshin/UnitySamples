@@ -33,7 +33,7 @@ This is the Unity version of the SimpleUPNP plugin for Unreal Engine([github.com
 \* iOS needs the *Multicast Networking* entitlement from Apple, see [Platform notes](Assets/com.woodsshin.simpleupnp/Documentation~/SimpleUPNP.md#platform-notes).
 WebGL cannot open sockets and is not supported.
 
-## Quick start (no code)
+## No-Code Setup
 
 1. **GameObject > Create Empty**, then **Add Component > Simple UPNP > UPNP Manager**.
 2. In the *Startup Mappings* list set the protocol and the port of your game (for example **UDP 7777**).
@@ -41,7 +41,7 @@ WebGL cannot open sockets and is not supported.
 4. Press Play. The Console shows `[Simple UPNP] Added UDP port mapping 7777 -> 192.168.x.x:7777 on <your router>`.
    When you stop the game, the mapping is removed again.
 
-## Quick start (code)
+## Scripting Setup
 
 ```csharp
 using UnityEngine;
@@ -73,6 +73,14 @@ public class HostGame : MonoBehaviour
 `await` returns on the Unity main thread, so you can touch Unity objects right after it.
 The port is closed again when the game quits (switch this off with *Close Mappings On Quit*).
 
+## Demo Samples Preview
+
+You can import the included demo sample to easily test port mapping, device status, and manufacturer info features through a sample UI.
+
+| Port Mapping | Device Status | Manufacturer Info |
+| :---: | :---: | :---: |
+| <img src="Image/Sample_PortMapping.PNG" width="220" alt="Port Mapping Demo"> | <img src="Image/Sample_DeviceStatus.PNG" width="220" alt="Device Status Demo"> | <img src="Image/Sample_Manufacturer.PNG" width="220" alt="Manufacturer Demo"> |
+
 ## Package contents
 
 | Folder | Contents |
@@ -81,7 +89,7 @@ The port is closed again when the game quits (switch this off with *Close Mappin
 | `Runtime/Unity` | `UpnpManager` component. Assembly `WoodsShin.SimpleUPNP.Runtime`. |
 | `Editor` | Gateway Tester window. Assembly `WoodsShin.SimpleUPNP.Editor`. |
 | `Tests/Editor` | Unit tests that run against a fake router on your own machine. Assembly `WoodsShin.SimpleUPNP.Tests`. |
-| `Samples/Demo` | IMGUI demo. Import it from **Package Manager > Simple UPNP > Samples**. |
+| `Samples~/Demo` | IMGUI demo. Import it from **Package Manager > Simple UPNP > Samples**. |
 | `Documentation~` | The manual: [SimpleUPNP.md](Documentation~/SimpleUPNP.md). |
 
 ## Documentation

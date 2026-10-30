@@ -15,9 +15,11 @@ no accounts. Nothing leaves the local network except the port mappings that you 
 * Never throws from the API: every call returns a result with an error code and a readable message.
 * Cleans up after itself: ports that the component opened are closed again when the game quits.
 * Gateway Tester window (**Window > Simple UPNP > Gateway Tester**) to try your router from the Editor.
-* Demo sample, unit tests, full source code.
+* Two samples: an IMGUI demo, and a **ready-made scene with a "UPNP Settings" window** in Unity UI (uGUI) that shows the
+  router information and the port mapping table (Manufacturer / Device Status / Port Mapping tabs).
+* Unit tests, full source code.
 
-Inspired by the *SimpleUPNP* plugin for Unreal Engine ([github.com/woodsshin/UPNPSample](https://github.com/woodsshin/UPNPSample)).
+This is the Unity version of the SimpleUPNP plugin for Unreal Engine([github.com/woodsshin/UPNPSample](https://github.com/woodsshin/UPNPSample)).
 
 ## Requirements
 
@@ -35,6 +37,8 @@ WebGL cannot open sockets and is not supported.
 3. Tick **Discover On Start** and **Open Startup Mappings On Start**.
 4. Press Play. The Console shows `[Simple UPNP] Added UDP port mapping 7777 -> 192.168.x.x:7777 on <your router>`.
    When you stop the game, the mapping is removed again.
+
+Or just look at your router first: import the **Settings UI (uGUI)** sample, open `UpnpSettings.unity` and press Play.
 
 ## Quick start (code)
 
@@ -76,7 +80,8 @@ The port is closed again when the game quits (switch this off with *Close Mappin
 | `Runtime/Unity` | `UpnpManager` component. Assembly `WoodsShin.SimpleUPNP.Runtime`. |
 | `Editor` | Gateway Tester window. Assembly `WoodsShin.SimpleUPNP.Editor`. |
 | `Tests/Editor` | Unit tests that run against a fake router on your own machine. Assembly `WoodsShin.SimpleUPNP.Tests`. |
-| `Samples/Demo` | IMGUI demo. Import it from **Package Manager > Simple UPNP > Samples**. |
+| `Samples~/Demo` | IMGUI demo. Import it from **Package Manager > Simple UPNP > Samples**. |
+| `Samples~/SettingsUI` | The `UpnpSettings` scene: a UPNP Settings window in Unity UI (needs the Unity UI package, `com.unity.ugui`). Import it from **Package Manager > Simple UPNP > Samples**. |
 | `Documentation~` | The manual: [SimpleUPNP.md](Documentation~/SimpleUPNP.md). |
 
 ## Documentation

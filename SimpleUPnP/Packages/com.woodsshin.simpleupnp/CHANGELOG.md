@@ -21,4 +21,6 @@ First release.
 - Engine independent `UpnpClient` (assembly `WoodsShin.SimpleUPNP.Core`, no `UnityEngine` reference).
 - Gateway Tester window (**Window > Simple UPNP > Gateway Tester**).
 - Demo sample (IMGUI) and a manual.
+- Settings UI sample (Unity UI): the `UpnpSettings` scene with a "UPNP Settings" window - Manufacturer, Device Status
+  and Port Mapping tabs, router search, port table with Add Port / Remove - modeled on the window of the Unreal plugin.
 - Unit tests that run against a fake router on the local machine.
