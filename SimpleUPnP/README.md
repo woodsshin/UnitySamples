@@ -24,7 +24,7 @@ Simple UPNP는 SSDP를 통해 인터넷 게이트웨이 장치(라우터)를 검
 * 지원 플랫폼: Windows, macOS, Linux, Android, iOS* 빌드 및 에디터. 순수 매니지드 코드로 구성되어 있으며 네이티브 플러그인이 없습니다.
 * 라우터의 UPnP 기능이 활성화되어 있어야 하며(대부분의 가정용 라우터는 기본적으로 활성화되어 있음), 공인 IP 주소를 가지고 있어야 합니다.
 
-\* iOS의 경우 Apple의 *Multicast Networking* 권한이 필요합니다. 자세한 내용은 [플랫폼 참고 사항](Assets/com.woodsshin.simpleupnp/Documentation~/SimpleUPNP.md#platform-notes)을 참조하세요.
+\* iOS의 경우 Apple의 *Multicast Networking* 권한이 필요합니다. 자세한 내용은 [플랫폼 참고 사항](Packages/com.woodsshin.simpleupnp/Documentation~/SimpleUPNP.md#platform-notes)을 참조하세요.
 WebGL은 소켓을 열 수 없으므로 지원되지 않습니다.
 
 ## 노코드 시작 가이드

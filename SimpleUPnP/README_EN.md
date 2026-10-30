@@ -30,7 +30,7 @@ This is the Unity version of the SimpleUPNP plugin for Unreal Engine([github.com
 * Platforms: Windows, macOS, Linux, Android and iOS* players and the Editor. Pure managed code, no native plugins.
 * The router must have UPnP switched on (many home routers do by default) and must have a public IP address.
 
-\* iOS needs the *Multicast Networking* entitlement from Apple, see [Platform notes](Assets/com.woodsshin.simpleupnp/Documentation~/SimpleUPNP.md#platform-notes).
+\* iOS needs the *Multicast Networking* entitlement from Apple, see [Platform notes](Packages/com.woodsshin.simpleupnp/Documentation~/SimpleUPNP.md#platform-notes).
 WebGL cannot open sockets and is not supported.
 
 ## No-Code Setup
