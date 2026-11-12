@@ -1,11 +1,26 @@
 # Unity Portfolio (Steam & Photon)
 > <a href="https://drive.google.com/file/d/1GoUnWiCkAd1RMs37GINjFdI8AssyieZi/view?usp=drive_link" target="_blank"><b>📄 다운로드 / 전체 포트폴리오 보기 (PDF)</b></a>
 
-Unity 기반 멀티플레이어 게임 개발 과정에서 다룬 네트워킹 관련 작업들을 폴더별로 정리했습니다. 레거시 엔진 네트워킹(UNet)의 유량 제어 문제 해결, Steamworks SDK 통합, 그리고 Photon PUN을 활용한 실제 플레이 가능한 프로토타입까지 — 서로 다른 계층과 목적의 작업을 포함합니다.
+## 포트폴리오 구성
+Unity 기반 멀티플레이어 게임 개발 과정에서 구현한 네트워킹 관련 작업과 Claude Code를 활용한 결정론적 서버 및 보드게임 플랫폼 예제를 정리했습니다. 레거시 엔진 네트워킹(UNet)의 유량 제어 문제 해결, Steamworks SDK 통합, 그리고 Photon PUN을 활용한 실제 플레이 가능한 프로토타입까지 서로 다른 계층과 목적의 작업을 포함합니다.
 
-## 폴더 구성
 
-### 📁 [Networking](./Networking)
+
+---
+## [BoardSandbox](https://github.com/woodsshin/BoardSandbox)
+
+Unity 6.3 기반 **보드게임 플랫폼(테이블탑 시뮬레이터 방식)** 입니다. 게임 규칙은 **Luau 스크립트 모드**로 작성하고, Unity(C#)는 규칙을 실행·검증하여 결과를 3D 보드로 보여 주는 구조입니다. `config.json`과 `.luau` 파일이 든 폴더 하나가 곧 게임 하나이며, 기본으로 오목(Gomoku) 모드가 포함되어 있습니다.
+
+- 정적 링크한 Luau VM을 C ABI 네이티브 라이브러리(`bse_luau.dll`)로 래핑해서 P/Invoke로 연동하고, 샌드박스 환경에서 호출당 시간 및 메모리 사용량을 제한하여 모드 스크립트를 안전하게 실행
+- 마우스·콘솔·컴퓨터 플레이어의 모든 입력이 단일진입점(`GameSession.Submit`)을 거쳐 규칙 스크립트(`rules.command`)의 검증을 통과해야 반영되는 호스트 권한 구조를 설계하고, `ICommandInterceptor`로 입력 차단 및 결과 기록을 확장
+- 매 턴의 상태를 스냅샷을 남겨 UnDo·ReDo·임의 시점 이동을 지원하는 시간 되감기 기능 구현
+- 렌더링 없이 별도 VM에서 대량의 무작위 대국을 실행해 승률 및 평균 턴 수를 집계하는 헤드리스(`Headless`) 시뮬레이션 구현 (동일한 모드·옵션·시드 입력 시 결정론적 결과 보장)
+- `IModSource` 인터페이스로 모드 출처(`Built-in`, `Local`, `Workshop`)를 추상화하여 분리하고, 게임 선택 UI 및 디버깅용 텍스트 콘솔 제공
+- `UnityEngine` 의존성을 완전히 배제한 `BoardSandbox.Core` 코어 라이브러리를 분리하여, 독립 콘솔 앱 및 .NET 테스트 하네스 환경에서도 동일한 게임 로직 실행 지원
+- 자세한 내용은 [BoardSandbox README](https://github.com/woodsshin/BoardSandbox) 참고
+
+---
+## [Networking](./Networking)
 
 Unity의 레거시 네트워킹 프레임워크인 **UNet(HLAPI)** 을 확장한 커스텀 네트워킹 레이어입니다. 데디케이티드 서버(UDP)와 **Steam P2P** 두 가지 전송 방식을 동일한 상위 인터페이스로 추상화하여 하나의 게임 로직이 두 전송 수단을 모두 지원하도록 설계했습니다.
 
@@ -14,7 +29,8 @@ Unity의 레거시 네트워킹 프레임워크인 **UNet(HLAPI)** 을 확장한
 - UNet의 연결 상태 머신을 분석하여, UNet이 표준 UDP 연결로 인식하도록 Steam P2P 전송 계층을 이식하는 저수준 설계
 - (부록) 10,000개 이상의 오브젝트를 가진 대형 월드 접속 시의 청크 스트리밍·낙하 버그 해결, 데디케이티드 서버 관리자 기능(비밀번호, 킥/밴, 원격 명령) 설계도 함께 포함
 
-### 📁 [Steam](./Steam)
+---
+## [Steam](./Steam)
 
 Unity(UNET) 기반 게임에 **Steamworks SDK(Steamworks.NET)** 를 통합한 모듈입니다. Stats/Achievements, Leaderboard, Matchmaking/Server Browser, Workshop(UGC), P2P Networking, Friends/Avatar 등 Steamworks의 주요 기능을 지원합니다.
 
@@ -22,14 +38,16 @@ Unity(UNET) 기반 게임에 **Steamworks SDK(Steamworks.NET)** 를 통합한 �
 - 단일 스레드 직렬 실행 큐(`SteamAsyncTaskManager`)로 스레드 안전성과 요청 순서 보장을 동시에 확보
 - 공통 타임아웃·생명주기 관리와 델리게이트 기반 결과 통보로, 신규 Steam 기능 추가 시 확장이 쉬운 구조
 
-### 📁 [PhotonPUNPrototype](./PhotonPUNPrototype)
+---
+## [PhotonPUNPrototype](./PhotonPUNPrototype)
 
 **Photon PUN(Photon Unity Networking) Lobby 샘플**을 기반으로 **Fall Guys**를 벤치마킹하여 구현한 멀티플레이어 프로토타입입니다. 리전 선택 → 룸 생성/참가 → 게임 시작으로 이어지는 매치메이킹 흐름과, 더블 점프·체크포인트 리스폰 등 캐주얼 레이싱 장르의 핵심 게임플레이를 실제 플레이 가능한 빌드로 구현했습니다.
 
 - 실행 화면 스크린샷과 다운로드 가능한 Windows 빌드 포함
 - 30명 이상의 동시 접속을 요구하는 실서비스 규모에 맞춰, PUN 검증 이후 **Photon Quantum**으로 전환한 설계 판단 과정을 함께 정리
 
-### 📁 [CustomServer](./CustomServer)
+---
+## [CustomServer](./CustomServer)
 
 Unity Dedicated Server 패키지나 상용 넷코드에 의존하지 않고, **순수 C# 콘솔 애플리케이션으로 작성한 UDP 서버**를 중심으로 Server-Authoritative 멀티플레이어 아키텍처를 처음부터 구현·검증한 프로젝트입니다. 동일 서버에 MonoBehaviour/ECS-DOTS 두 클라이언트가 동시 접속 가능하며, 클라이언트 예측·재조정·원격 보간까지 포함합니다. 이후 C++17로 서버를 별도 포팅하여, 와이어 프로토콜과 시뮬레이션 로직이 특정 언어/런타임에 종속되지 않음을 검증했습니다.
 
@@ -38,7 +56,8 @@ Unity Dedicated Server 패키지나 상용 넷코드에 의존하지 않고, **�
 - 순수 .NET 콘솔 부하 테스트 봇으로 200명 규모 동시접속 시뮬레이션 데모 영상 포함
 - 자세한 내용과 빌드 다운로드는 [CustomServer/README.md](./CustomServer/README.md) 참고
 
-### 📁 [DeterministicServer](./DeterministicServer)
+---
+## [DeterministicServer](./DeterministicServer)
 
 `CustomServer`의 Server-Authoritative + 클라이언트 예측/재조정 구조를 **Deterministic Lockstep** 구조로 전면 재설계한 후속 프로젝트입니다. 서버는 물리를 전혀 계산하지 않고 입력 수집·중계만 담당하며, DOTS/ECS 클라이언트를 포함한 모든 참여자가 동일한 입력 시퀀스를 동일한 순서로 재생해 각자 독립적으로 물리를 계산합니다. Photon Quantum, RTS 게임들이 사용하는 것과 동일한 개념입니다.
 
@@ -47,7 +66,8 @@ Unity Dedicated Server 패키지나 상용 넷코드에 의존하지 않고, **�
 - 물리를 계산하지 않는 순수 .NET 콘솔 부하 테스트 봇으로 대규모 동시접속 트래픽 시뮬레이션
 - 자세한 내용은 [DeterministicServer/README.md](./DeterministicServer/README.md) 참고
 
-### 📁 [Simple UPNP](./SimpleUPnP/README.md)
+---
+## [Simple UPNP](./SimpleUPnP/README.md)
 
 Simple UPNP는 UPnP 인터넷 게이트웨이 장치(라우터)에서 UDP/TCP 포트 매핑을 손쉽게 추가, 삭제, 조회할 수 있는 솔루션입니다.
 
@@ -56,3 +76,4 @@ Simple UPNP는 UPnP 인터넷 게이트웨이 장치(라우터)에서 UDP/TCP �
 - 표준 UPnP IGD SOAP 서비스(WANIPConnection / WANPPPConnection)를 통해 포트 매핑을 관리
 - 순수 C#으로 제작되어 네이티브 플러그인, 외부 서비스, 별도의 계정 설정이 불필요
 - 자세한 내용은 [SimpleUPnP/README.md](./SimpleUPnP/README.md)를 참고
+
